@@ -1,0 +1,27 @@
+[project]
+name = "apo"
+version = "0.1.0"
+description = "Adaptive Portfolio Optimization Using Machine Learning for Market Regime Dynamics"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "yfinance>=0.2.40",
+    "pyarrow>=16.0",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.5",
+    "tqdm>=4.66",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

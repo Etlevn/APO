@@ -1,0 +1,17 @@
+# Default pipeline recipes (dataset + feature windows).
+# Data / walk-forward / PRICE_COL / CANDIDATE / MODEL_RUN: config.py
+# Estimator hyperparameters: config/model.yaml
+
+dataset:
+  # Asset mix for portfolio returns / E_t comes from config.py → WEIGHTS.
+  label_metric: cumulative_return # cumulative_return | mean_return
+
+feature:
+  windows:
+    ret_1: 1
+    ret_5: 5
+    ret_21: 21
+    vol: 21
+    ma: 21
+  # Preview script may fit on the full sample; production must fit train-only.
+  standardize: true

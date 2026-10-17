@@ -1,0 +1,13 @@
+.*
+!.gitignore
+_*/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+
+/data/
+*.parquet
+/output/
+/notes/
