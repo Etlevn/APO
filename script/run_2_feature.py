@@ -5,7 +5,12 @@ Usage (from project root):
     python script/run_2_feature.py
 
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
-Caching is handled only by main.py.
+Full production runs (complete grids / modes / models) are handled only by main.py.
+
+Preview scope (no simplification vs main.py):
+  - CANDIDATE:    (n/a — features only)
+  - POSITION_RUN: (n/a)
+  - MODEL_RUN:    (n/a)
 """
 
 from __future__ import annotations

@@ -4,8 +4,13 @@ Manual preview entry for the candidate module.
 Usage (from project root):
     python script/run_4_candidate.py
 
-Builds the SPO parameter grid from config.CANDIDATE and prints a terminal preview.
-Does not fetch market data or use cache.
+Builds the SPO parameter grid and prints a terminal preview. Does not fetch market data or use cache.
+Full production runs (complete grids / modes / models) are handled only by main.py.
+
+Preview scope (no simplification vs main.py):
+  - CANDIDATE:    full grid for STRATEGY_RUN
+  - POSITION_RUN: (n/a — candidate table only)
+  - MODEL_RUN:    (n/a)
 """
 
 from __future__ import annotations

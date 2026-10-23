@@ -1,11 +1,10 @@
-"""Build hold-period returns for CPO picks, fixed baseline, and buy-and-hold market."""
+"""Build hold-period returns for CPO picks, fixed baseline, and constant-mix basket."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from dataset.calendar import parse_span
 from dataset.weights import resolve_weights
 from strategy import (
     apply_position_mode,
@@ -74,13 +73,13 @@ def _forward_cumulative_return(
     return float(np.prod(1.0 + window.to_numpy(dtype=float)) - 1.0)
 
 
-def buy_hold_returns(
+def const_mix_returns(
     panel: pd.DataFrame,
     *,
     price_col: str,
     weights: dict[str, float],
 ) -> pd.Series:
-    """Daily weighted buy-and-hold asset returns (long-only, no strategy overlay)."""
+    """Daily target-weight returns (constant mix; rebalanced each bar, not drift B&H)."""
     frame = panel.loc[:, ["timestamp", "asset_id", price_col]].copy()
     frame["timestamp"] = pd.to_datetime(frame["timestamp"])
     pieces: list[pd.DataFrame] = []
@@ -98,6 +97,25 @@ def buy_hold_returns(
     return series
 
 
+def decision_label_ends(selections: pd.DataFrame) -> dict[pd.Timestamp, pd.Timestamp]:
+    """Map each decision_date to its stored label_end from main selections."""
+    if selections.empty:
+        return {}
+    frame = selections.loc[:, ["decision_date", "label_end"]].copy()
+    frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.normalize()
+    frame["label_end"] = pd.to_datetime(frame["label_end"]).dt.normalize()
+    mapping: dict[pd.Timestamp, pd.Timestamp] = {}
+    for decision, group in frame.groupby("decision_date", sort=True):
+        ends = group["label_end"].dropna().unique()
+        if len(ends) != 1:
+            raise ValueError(
+                f"inconsistent label_end for decision_date={pd.Timestamp(decision).date()}: "
+                f"{sorted(pd.Timestamp(x).date().isoformat() for x in ends)}"
+            )
+        mapping[pd.Timestamp(decision)] = pd.Timestamp(ends[0])
+    return mapping
+
+
 def cpo_period_returns(selections: pd.DataFrame) -> pd.DataFrame:
     """One row per selection using stored realized_label as the hold-period return."""
     if selections.empty:
@@ -105,15 +123,10 @@ def cpo_period_returns(selections: pd.DataFrame) -> pd.DataFrame:
     if "position_mode" not in selections.columns:
         selections = selections.copy()
         selections["position_mode"] = "long_short"
-    label_end = (
-        pd.to_datetime(selections["label_end"])
-        if "label_end" in selections.columns
-        else pd.NaT
-    )
     out = pd.DataFrame(
         {
             "decision_date": pd.to_datetime(selections["decision_date"]).dt.normalize(),
-            "label_end": label_end,
+            "label_end": pd.to_datetime(selections["label_end"]).dt.normalize(),
             "model_id": selections["model_id"].astype(str),
             "position_mode": selections["position_mode"].astype(str),
             "strategy_id": selections["strategy_id"].astype(str),
@@ -127,23 +140,21 @@ def cpo_period_returns(selections: pd.DataFrame) -> pd.DataFrame:
 def baseline_period_returns(
     panel: pd.DataFrame,
     *,
-    decision_dates: list[pd.Timestamp],
+    label_ends: dict[pd.Timestamp, pd.Timestamp],
     strategy_ids: list[str],
     position_modes: list[str],
     candidate_cfg: dict,
-    walkforward_cfg: dict,
     price_col: str,
     tickers: list[str],
     weights: dict[str, float] | None,
     overlay_scale: float = 1.0,
 ) -> pd.DataFrame:
     """Fixed first-grid-point params under each position_mode, same hold windows."""
-    if not decision_dates or not strategy_ids or not position_modes:
+    if not label_ends or not strategy_ids or not position_modes:
         return pd.DataFrame(columns=_PERIOD_COLS)
 
     resolved = resolve_weights(tickers, weights)
     baseline_cfg = baseline_strategy_cfg(candidate_cfg, price_col=price_col)
-    label_offset = parse_span(walkforward_cfg["label_horizon"])
 
     cache: dict[tuple[str, str], pd.Series] = {}
     for position_mode in position_modes:
@@ -156,9 +167,9 @@ def baseline_period_returns(
             cache[(position_mode, strategy_id)] = _portfolio_returns(signal, resolved)
 
     rows: list[dict[str, object]] = []
-    for decision in decision_dates:
+    for decision, label_end in sorted(label_ends.items()):
         decision = pd.Timestamp(decision).normalize()
-        label_end = (decision + label_offset).normalize()
+        label_end = pd.Timestamp(label_end).normalize()
         for position_mode in position_modes:
             for strategy_id in strategy_ids:
                 value = _forward_cumulative_return(
@@ -182,28 +193,26 @@ def baseline_period_returns(
     return pd.DataFrame(rows)
 
 
-def market_period_returns(
+def const_mix_period_returns(
     panel: pd.DataFrame,
     *,
-    decision_dates: list[pd.Timestamp],
-    walkforward_cfg: dict,
+    label_ends: dict[pd.Timestamp, pd.Timestamp],
     price_col: str,
     tickers: list[str],
     weights: dict[str, float] | None,
 ) -> pd.DataFrame:
-    """Buy-and-hold weighted panel over the same hold windows."""
-    if not decision_dates:
+    """Constant-mix (target-weight) basket over the same hold windows as CPO/baseline."""
+    if not label_ends:
         return pd.DataFrame(columns=_PERIOD_COLS)
 
     resolved = resolve_weights(tickers, weights)
-    market = buy_hold_returns(panel, price_col=price_col, weights=resolved)
-    label_offset = parse_span(walkforward_cfg["label_horizon"])
+    mix = const_mix_returns(panel, price_col=price_col, weights=resolved)
 
     rows: list[dict[str, object]] = []
-    for decision in decision_dates:
+    for decision, label_end in sorted(label_ends.items()):
         decision = pd.Timestamp(decision).normalize()
-        label_end = (decision + label_offset).normalize()
-        value = _forward_cumulative_return(market, decision, label_end)
+        label_end = pd.Timestamp(label_end).normalize()
+        value = _forward_cumulative_return(mix, decision, label_end)
         if value is None:
             continue
         rows.append(
@@ -213,7 +222,7 @@ def market_period_returns(
                 "model_id": "",
                 "position_mode": "",
                 "strategy_id": "",
-                "sleeve": "market",
+                "sleeve": "const_mix",
                 "period_return": value,
             }
         )

@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from dataset.calendar import parse_span
-
 from .metrics import summarize_period_returns
 from .paths import (
     baseline_period_returns,
     blend_strategies,
+    const_mix_period_returns,
     cpo_period_returns,
-    market_period_returns,
+    decision_label_ends,
 )
 
 
@@ -24,11 +23,23 @@ def load_selections(path: str | Path) -> pd.DataFrame:
     frame = pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"selections file is empty: {path}")
-    required = {"decision_date", "model_id", "strategy_id", "realized_label"}
+    required = {
+        "decision_date",
+        "label_end",
+        "model_id",
+        "strategy_id",
+        "realized_label",
+    }
     missing = required - set(frame.columns)
     if missing:
-        raise ValueError(f"selections missing columns: {sorted(missing)}")
+        raise ValueError(
+            f"selections missing columns: {sorted(missing)}. "
+            "Re-run main.py so main_selections.csv includes label_end from the training table."
+        )
     frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.normalize()
+    frame["label_end"] = pd.to_datetime(frame["label_end"]).dt.normalize()
+    if frame["label_end"].isna().any():
+        raise ValueError("selections.label_end contains nulls; re-run main.py.")
     if "position_mode" not in frame.columns:
         frame["position_mode"] = "long_short"
     return frame
@@ -50,18 +61,6 @@ def _periods_per_year(label_horizon: str) -> float:
         days = float(text[:-1])
         return 365.25 / days if days > 0 else 1.0
     return 1.0
-
-
-def _attach_label_end(
-    selections: pd.DataFrame,
-    walkforward_cfg: dict,
-) -> pd.DataFrame:
-    frame = selections.copy()
-    if "label_end" not in frame.columns or frame["label_end"].isna().all():
-        offset = parse_span(walkforward_cfg["label_horizon"])
-        frame["label_end"] = frame["decision_date"] + offset
-    frame["label_end"] = pd.to_datetime(frame["label_end"]).dt.normalize()
-    return frame
 
 
 def _summary_rows(
@@ -105,15 +104,17 @@ def run_evaluation(
     """
     Return full ``(summary, periods)`` for everything in ``selections_path``.
 
-    Always includes cpo/baseline singles + blends, and market.
+    Hold windows use ``label_end`` stored in the selections CSV (from main);
+    they are not recomputed from the current ``config.py``.
+
+    Always includes cpo/baseline singles + blends, and const_mix.
     Display filters belong in the standalone ``plot.py`` entry, not here.
     """
-    raw = load_selections(selections_path)
-    if raw.empty:
+    filtered = load_selections(selections_path)
+    if filtered.empty:
         raise ValueError("selections file is empty.")
 
-    filtered = _attach_label_end(raw, walkforward_cfg)
-    decisions = sorted(filtered["decision_date"].unique())
+    label_ends = decision_label_ends(filtered)
     strategies = sorted(filtered["strategy_id"].astype(str).unique())
     modes = sorted(filtered["position_mode"].astype(str).unique())
     active_candidate_cfg = {
@@ -130,27 +131,25 @@ def run_evaluation(
     cpo = cpo_period_returns(filtered)
     baseline = baseline_period_returns(
         panel,
-        decision_dates=decisions,
+        label_ends=label_ends,
         strategy_ids=strategies,
         position_modes=modes,
         candidate_cfg=active_candidate_cfg,
-        walkforward_cfg=walkforward_cfg,
         price_col=price_col,
         tickers=tickers,
         weights=weights,
         overlay_scale=overlay_scale,
     )
-    market = market_period_returns(
+    const_mix = const_mix_period_returns(
         panel,
-        decision_dates=decisions,
-        walkforward_cfg=walkforward_cfg,
+        label_ends=label_ends,
         price_col=price_col,
         tickers=tickers,
         weights=weights,
     )
 
     periods = pd.concat(
-        [cpo, blend_strategies(cpo), baseline, blend_strategies(baseline), market],
+        [cpo, blend_strategies(cpo), baseline, blend_strategies(baseline), const_mix],
         ignore_index=True,
     )
     periods = periods.sort_values(

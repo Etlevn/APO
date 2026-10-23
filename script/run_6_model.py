@@ -4,9 +4,13 @@ Manual preview entry for the model module.
 Usage (from project root):
     python script/run_6_model.py
 
-Fetches from yfinance, builds the CPO training table, runs walk-forward
-selection for configured models, and prints a terminal preview.
-Does not read or write cache. Caching is handled only by main.py.
+Fetches from yfinance and prints a terminal preview. Does not read or write cache.
+Full production runs (complete grids / modes / models) are handled only by main.py.
+
+Preview scope (simplified vs main.py):
+  - CANDIDATE:    full grid for STRATEGY_RUN
+  - POSITION_RUN: first mode only
+  - MODEL_RUN:    first model id only
 """
 
 from __future__ import annotations
@@ -24,15 +28,17 @@ if str(SRC) not in sys.path:
 import config
 from data import load_etf_panel
 from dataset import build_training_table
-from model import run_walkforward_selection
-from strategy import select_candidate_cfg
+from model import resolve_model_ids, run_walkforward_selection
+from strategy import resolve_position_ids, select_candidate_cfg
 from util import load_yaml
 
 
 def main() -> None:
     default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
-    model_cfg = {**load_yaml(config.CONFIG_DIR / "model.yaml"), "run": config.MODEL_RUN}
+    model_id = resolve_model_ids({"run": config.MODEL_RUN})[0]
+    model_cfg = {**load_yaml(config.CONFIG_DIR / "model.yaml"), "run": model_id}
     candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
+    position_mode = resolve_position_ids(config.POSITION_RUN)[0]
 
     panel = load_etf_panel(
         tickers=config.TICKERS,
@@ -48,7 +54,7 @@ def main() -> None:
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
         weights=config.WEIGHTS,
-        position_modes=config.POSITION_RUN,
+        position_modes=position_mode,
         overlay_scale=config.POSITION_OVERLAY_SCALE,
         show_progress=True,
     )

@@ -5,9 +5,12 @@ Usage (from project root):
     python script/run_3_strategy.py
 
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
-Caching is handled only by main.py.
+Full production runs (complete grids / modes / models) are handled only by main.py.
 
-Baseline params = first value of each CANDIDATE grid dimension.
+Preview scope (simplified vs main.py):
+  - CANDIDATE:    first grid point per STRATEGY_RUN strategy
+  - POSITION_RUN: (n/a — signals only)
+  - MODEL_RUN:    (n/a)
 """
 
 from __future__ import annotations

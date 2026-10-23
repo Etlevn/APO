@@ -10,7 +10,7 @@ APO is a modular research pipeline for **conditional portfolio optimization (CPO
 2. **Features & labels** — Build a CPO training table: market features \(E_t\) paired with candidate parameters \(x\) and forward performance labels \(y\).
 3. **Walk-forward selection** — Fit conditional models (HistGradientBoosting, Ridge, Random Forest) without look-ahead; at each rebalance date pick the candidate with the highest predicted label (\(\arg\max_x \hat F(E_t, x)\)).
 4. **Position modes** — Apply long/short, long-only, or market-overlay exposure on top of strategy signals.
-5. **Evaluation & plots** — Backtest CPO vs a fixed-parameter baseline vs buy-and-hold market; write summary/period CSVs and equity charts.
+5. **Evaluation & plots** — Backtest CPO vs a fixed-parameter baseline vs a constant-mix (target-weight) basket; write summary/period CSVs and equity charts.
 
 ## Requirements
 
@@ -30,9 +30,10 @@ Edit settings in `config.py` (tickers, walk-forward calendar, strategies, models
 ```bash
 # 1) Cached panel → training table → walk-forward selections
 python main.py
-# → output/main_selections.csv
+# → output/main_selections.csv, output/main_run_config.json
 
-# 2) Full backtest tables (CPO / baseline / market)
+# 2) Full backtest tables (CPO / baseline / const_mix)
+#    eval prefers main_run_config.json over the current config.py
 python eval.py
 # → output/eval_summary.csv, output/eval_periods.csv
 
@@ -53,7 +54,7 @@ Preview scripts under `script/` fetch data without writing the production select
 | `POSITION_RUN`               | `long_short`, `long_only`, `market_overlay`                                                    |
 | `WEIGHTS`                    | Cross-sectional ETF weights (`None` = equal weight)                                            |
 
-Baseline strategy parameters are the **first value** of each list in `CANDIDATE`. Prefer `rebalance_freq == label_horizon` so the hold window matches the live trade horizon; `sample_freq` may be denser to enlarge the training set.
+Baseline strategy parameters are the **first value** of each list in `CANDIDATE`. Phase 1 requires `rebalance_freq == label_horizon` so the hold window matches the live trade horizon; `sample_freq` may be denser to enlarge the training set.
 
 ## Repository layout
 
@@ -72,25 +73,25 @@ src/
   evaluate/            # Paths, metrics, filters, plotting
   util/                # Shared helpers
 script/                # Interactive / preview runners
-output/                # Selections, eval tables, plots
+output/                # Selections, main_run_config.json, eval tables, plots
 data/                  # Local panel cache
 ```
 
 ## Methods (brief)
 
 - **CPO interface:** \((E_t, x) \mapsto\) predicted forward performance; selection is \(\arg\max_x \hat F(E_t, x)\).
-- **Sleeves in evaluation:** `cpo` (model-selected parameters), `baseline` (fixed first-grid parameters), `market` (buy-and-hold on the weighted ETF basket).
+- **Sleeves in evaluation:** `cpo` (model-selected parameters), `baseline` (fixed first-grid parameters), `const_mix` (target-weight basket rebalanced each bar; not drift buy-and-hold).
 
 ### Time semantics (day panel)
 
 All clocks are **calendar dates** (normalized), not intraday timestamps. The pipeline keeps one stable convention; CSV products do **not** duplicate every conceptual clock as its own column.
 
-| Conceptual clock            | Rule in code                                                                                                                                                                              | In artifacts                                                                                                                                                                                                             |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Feature cutoff**          | Features use the latest panel row with `timestamp <= decision_date` (as-of). If no complete as-of feature vector exists, the sample is **dropped** (no look-ahead into the label window). | Not a column; only feature values are stored.                                                                                                                                                                            |
-| **Decision**                | Live selection / sample anchor date.                                                                                                                                                      | `decision_date` in `main_selections.csv` and `eval_periods.csv`.                                                                                                                                                         |
-| **Execution / label start** | Realized returns and hold P&L use bars strictly after the decision: `(decision_date, label_end]`.                                                                                         | Implied by that open interval; no separate `execution_time`. Hold end is `label_end` in `eval_periods.csv` (and in the in-memory training table).                                                                        |
-| **Train window**            | For a live decision \(t\): rows with `decision_date < t` and `label_end <= t` (labels fully realized). Rolling mode also requires `decision_date >= t - train_window`.                    | Not written to selection CSV; `train_rows` is the count. In-memory training table has `train_start` (= sample `decision_date - train_window`) but no `train_end` column (`train_end` ≡ live \(t\) under the mask above). |
+| Conceptual clock          | Rule in code                                                                                                                                                                                                              | In artifacts                                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Feature cutoff**        | Features use the latest panel row with `timestamp <= decision_date` (as-of). If no complete as-of feature vector exists, the sample is **dropped** (no look-ahead into the label window).                                 | Not a column; only feature values are stored.                                                                                                                                                                            |
+| **Decision**              | Live selection / sample anchor date. Schedules snap to **panel trading days** (`Nd` steps trading days; `Nw`/`Nm`/`Ny` calendar grid then snap on-or-after).                                                              | `decision_date` in `main_selections.csv` and `eval_periods.csv`.                                                                                                                                                         |
+| **Execution / label end** | Hold window is `(decision_date, label_end]`. **Live** rows use the next formal rebalance boundary. The final observed boundary closes the preceding period but does not create a new live row. Train-only rows use trading-calendar `label_horizon` and require the complete horizon. | Written to `main_selections.csv` by `main.py`; `eval.py` reads it (does not recompute from `config.py`). Also in `eval_periods.csv`.                                                                                     |
+| **Train window**          | For a live decision \(t\): rows with `decision_date < t` and `label_end <= t` (labels fully realized). Rolling mode also requires `decision_date >= t - train_window`.                                                    | Not written to selection CSV; `train_rows` is the count. In-memory training table has `train_start` (= sample `decision_date - train_window`) but no `train_end` column (`train_end` ≡ live \(t\) under the mask above). |
 
 **Anti-leakage summary:** at decision \(t\), features and model inputs are observable on or before \(t\); incomplete warm-up rows are discarded rather than filled from the future; training labels must have finished by \(t\); evaluation/selection P&L starts after \(t\`.
 

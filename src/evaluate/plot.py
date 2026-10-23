@@ -12,7 +12,7 @@ import pandas as pd
 
 from .metrics import equity_curve
 
-_MARKET_COLOR = "#888888"
+_CONST_MIX_COLOR = "#888888"
 _BASELINE_COLOR = "#000000"
 _CPO_COLORS = (
     "#1f77b4",
@@ -42,8 +42,8 @@ def _series_label(
     model_id: str,
 ) -> str:
     """Legend: sleeve / position / strategy / model (model only for cpo)."""
-    if sleeve == "market":
-        return "market"
+    if sleeve == "const_mix":
+        return "const_mix"
     parts = [sleeve]
     if position_mode:
         parts.append(position_mode)
@@ -78,11 +78,11 @@ def _filter_plot_rows(
         frame = frame.loc[frame["sleeve"].astype(str).isin(sleeve_ids)]
 
     if position_ids is not None:
-        keep = (frame["sleeve"] == "market") | frame["position_mode"].isin(position_ids)
+        keep = (frame["sleeve"] == "const_mix") | frame["position_mode"].isin(position_ids)
         frame = frame.loc[keep]
 
     if strategy_ids is not None:
-        keep = (frame["sleeve"] == "market") | frame["strategy_id"].isin(strategy_ids)
+        keep = (frame["sleeve"] == "const_mix") | frame["strategy_id"].isin(strategy_ids)
         frame = frame.loc[keep]
 
     if model_ids is not None:
@@ -111,7 +111,7 @@ def save_equity_plot(
     """
     Write one PNG. Filters apply only to the figure (full ``periods`` unchanged).
 
-    Colors: market = gray, baseline = black, cpo = colored cycle.
+    Colors: const_mix = gray, baseline = black, cpo = colored cycle.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,8 +140,8 @@ def save_equity_plot(
         ordered = group.sort_values("decision_date")
         equity = equity_curve(ordered["period_return"])
         sleeve_s = str(sleeve)
-        if sleeve_s == "market":
-            color = _MARKET_COLOR
+        if sleeve_s == "const_mix":
+            color = _CONST_MIX_COLOR
         elif sleeve_s == "baseline":
             color = _BASELINE_COLOR
         else:

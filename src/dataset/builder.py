@@ -16,7 +16,12 @@ from strategy import (
 )
 from util import ProgressBar
 
-from .calendar import build_event_dates, parse_span
+from .calendar import (
+    build_event_dates,
+    decision_period_map,
+    label_end_for_event,
+    parse_span,
+)
 from .weights import resolve_weights
 
 
@@ -145,7 +150,8 @@ def build_training_table(
     Each row is one (decision_date, position_mode, strategy_id, candidate_id) with:
     - cross-sectional weighted features at the sample date (E_t)
     - candidate parameters (x)
-    - forward portfolio performance label (y) over label_horizon
+    - forward portfolio performance label (y): live rows hold to the next
+      formal rebalance boundary; train-only rows use label_horizon
     """
     dataset_cfg = dataset_cfg or {}
     price_col = price_col or feature_cfg.get("price_col", "adj_close")
@@ -164,8 +170,10 @@ def build_training_table(
     features = features.dropna(subset=list(FEATURE_COLUMNS)).copy()
     features["timestamp"] = pd.to_datetime(features["timestamp"])
 
-    max_ts = pd.to_datetime(panel["timestamp"]).max()
-    panel_start = pd.to_datetime(panel["timestamp"]).min()
+    panel_ts = pd.to_datetime(panel["timestamp"])
+    max_ts = panel_ts.max()
+    panel_start = panel_ts.min()
+    trading_days = panel_ts
     first_decision = pd.Timestamp(walkforward_cfg["first_decision_date"]).normalize()
     rebalance_freq = walkforward_cfg["rebalance_freq"]
     sample_freq = walkforward_cfg.get("sample_freq", rebalance_freq)
@@ -177,13 +185,21 @@ def build_training_table(
         rebalance_freq=rebalance_freq,
         label_horizon=label_horizon,
         max_timestamp=max_ts,
+        trading_days=trading_days,
         panel_start=panel_start,
     )
     if not event_dates:
         return pd.DataFrame()
 
     train_offset = parse_span(walkforward_cfg["train_window"])
-    label_offset = parse_span(label_horizon)
+    decision_end_by_date = decision_period_map(
+        first_decision_date=first_decision,
+        rebalance_freq=rebalance_freq,
+        max_timestamp=max_ts,
+        trading_days=trading_days,
+    )
+    if set(decision_end_by_date) != decision_set:
+        raise RuntimeError("decision schedule and decision-period map are inconsistent")
 
     candidate_items = list(iter_candidate_params(candidates))
     n_candidates = len(candidate_items)
@@ -212,7 +228,22 @@ def build_training_table(
 
                 cand_row = candidates.loc[candidates["candidate_id"] == candidate_id].iloc[0]
                 for sample_date in event_dates:
-                    label_end = sample_date + label_offset
+                    sample_date = pd.Timestamp(sample_date).normalize()
+                    is_model_decision = sample_date in decision_set
+                    label_end = label_end_for_event(
+                        sample_date,
+                        label_horizon=label_horizon,
+                        trading_days=trading_days,
+                        next_decision=(
+                            decision_end_by_date[sample_date]
+                            if is_model_decision
+                            else None
+                        ),
+                    )
+                    if label_end is None:
+                        if pbar is not None:
+                            pbar.update(1)
+                        continue
                     feat = _feature_for_sample(
                         features,
                         sample_date,
@@ -234,10 +265,10 @@ def build_training_table(
                         continue
 
                     row: dict[str, object] = {
-                        "decision_date": sample_date.normalize(),
+                        "decision_date": sample_date,
                         "label_end": pd.Timestamp(label_end).normalize(),
                         "train_start": (sample_date - train_offset).normalize(),
-                        "is_model_decision": sample_date.normalize() in decision_set,
+                        "is_model_decision": is_model_decision,
                         "position_mode": position_mode,
                         "strategy_id": strategy_id,
                         "candidate_id": candidate_id,

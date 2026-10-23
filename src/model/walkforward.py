@@ -99,6 +99,7 @@ def _select_for_decision(
     best = today.iloc[best_idx]
     return {
         "decision_date": pd.Timestamp(decision).normalize(),
+        "label_end": pd.Timestamp(best["label_end"]).normalize(),
         "model_id": model_id,
         "position_mode": str(position_mode),
         "strategy_id": strategy_id,
@@ -186,4 +187,19 @@ def run_walkforward_selection(
     frame = pd.DataFrame(rows)
     return frame.sort_values(
         ["model_id", "position_mode", "decision_date", "strategy_id"]
-    ).reset_index(drop=True)
+    ).reset_index(drop=True)[
+        [
+            "decision_date",
+            "label_end",
+            "model_id",
+            "position_mode",
+            "strategy_id",
+            "candidate_id",
+            "lookback",
+            "ma_window",
+            "entry_z",
+            "predicted_label",
+            "realized_label",
+            "train_rows",
+        ]
+    ]

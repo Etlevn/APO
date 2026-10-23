@@ -1,6 +1,6 @@
 """Baseline trading strategies for Stage 0."""
 
-from .baseline import baseline_strategy_cfg
+from .baseline import baseline_candidate_cfg, baseline_strategy_cfg
 from .mean_reversion import run_mean_reversion
 from .momentum import run_momentum
 from .position_mode import (
@@ -16,6 +16,7 @@ __all__ = [
     "SUPPORTED_POSITION_MODES",
     "SUPPORTED_STRATEGIES",
     "apply_position_mode",
+    "baseline_candidate_cfg",
     "baseline_strategy_cfg",
     "resolve_position_ids",
     "resolve_strategy_ids",

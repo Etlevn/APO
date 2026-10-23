@@ -23,6 +23,7 @@ CACHE_FORMAT: str = "parquet"  # parquet | csv
 # Walk-forward selection artifacts written by main.py
 OUTPUT_DIR: Path = PROJECT_ROOT / "output"
 SELECTIONS_CSV: Path = OUTPUT_DIR / "main_selections.csv"
+RUN_CONFIG_JSON: Path = OUTPUT_DIR / "main_run_config.json"
 
 # Price column used by features and strategies.
 PRICE_COL: str = "adj_close"
@@ -37,9 +38,13 @@ PREVIEW_ROWS: int = 10
 
 # Walk-forward. Span choices: "1y" | "6m" | "3m" | "1m" | "1w" | "1d"
 # Labeled samples start at first_decision_date - train_window (warmup for fitting).
-# Prefer rebalance_freq == label_horizon (hold window matches live trade horizon).
+# Phase 1 requires rebalance_freq == label_horizon so live holds match rebalances.
+# A live label_end is the next formal rebalance boundary. The final boundary only
+# closes the preceding period and is not emitted as a new live decision.
+# Train-only rows use label_horizon and require a fully observed forward window.
 # sample_freq may equal rebalance_freq, or be denser (more train rows).
-# Day-panel time semantics: README → "Time semantics".
+# "Nd" steps N trading days; "Nw"/"Nm"/"Ny" use a calendar grid then snap
+# to the next panel trading day. Day-panel time semantics: README.
 #
 # Common fund-style presets (copy values into WALKFORWARD below):
 #   Annual  rebalance: train_window=2y, sample_freq=1m, rebalance_freq=1y, label_horizon=1y
@@ -51,7 +56,7 @@ PREVIEW_ROWS: int = 10
 WALKFORWARD: dict[str, str] = {
     "mode": "rolling",  # "rolling" | "expanding"
     "train_window": "2y",  # fit history length; "2y" | "1y" | "6m" | "3m" | "1m" | "1w" | "1d"
-    "sample_freq": "1m",  # how often to build training rows (can be denser than rebalance)
+    "sample_freq": "1w",  # training-row step; "Nd" = N trading days (not calendar days)
     "rebalance_freq": "1m",  # how often to live-select params / rebalance; same span choices
     "label_horizon": "1m",  # forward window for label y / OOS hold; same span choices
     "first_decision_date": "2017-01-01",  # first model selection date ("YYYY-MM-DD")
@@ -66,7 +71,7 @@ STRATEGY_RUN: str | list[str] = ["momentum", "trend", "mean_reversion"]  # "mome
 #   long_short     — raw ±1 / 0 (current default)
 #   long_only      — clip shorts: 0 / +1
 #   market_overlay — position = 1 + OVERLAY_SCALE * raw_signal (buy-hold + overlay)
-POSITION_RUN: str | list[str] = ["long_short", "long_only", "market_overlay"]
+POSITION_RUN: str | list[str] = ["long_only","long_short","market_overlay"]  # "long_short" | "long_only" | "market_overlay"
 POSITION_OVERLAY_SCALE: float = 1.0  # used only by market_overlay
 
 # Finite SPO parameter grids (edit lists to customize the search space).
