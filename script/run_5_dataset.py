@@ -4,8 +4,9 @@ Manual preview entry for the dataset module.
 Usage (from project root):
     python script/run_5_dataset.py
 
-Fetches from yfinance and prints a terminal preview of the CPO training table.
-Does not read or write cache. Caching is handled only by main.py.
+Fetches from yfinance and prints a terminal preview of the CPO training table,
+then a hist_mean (non-ML) selection table with the same schema as
+``main_selections.csv``. Does not read or write cache / output files.
 """
 
 from __future__ import annotations
@@ -23,12 +24,14 @@ if str(SRC) not in sys.path:
 import config
 from data import describe_panel, load_etf_panel
 from dataset import build_training_table
+from model import run_hist_mean_selection
 from strategy import select_candidate_cfg
 from util import load_yaml
 
 
 def main() -> None:
     default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
+    model_cfg = load_yaml(config.CONFIG_DIR / "model.yaml")
     candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
 
     panel = load_etf_panel(
@@ -47,6 +50,7 @@ def main() -> None:
         weights=config.WEIGHTS,
         position_modes=config.POSITION_RUN,
         overlay_scale=config.POSITION_OVERLAY_SCALE,
+        show_progress=True,
     )
 
     print(table.head(config.PREVIEW_ROWS).to_string(index=False))
@@ -54,6 +58,21 @@ def main() -> None:
     print(table.tail(config.PREVIEW_ROWS).to_string(index=False))
     print()
     print(describe_panel(table, with_dtype=False).to_string())
+
+    selections = run_hist_mean_selection(
+        table,
+        walkforward_cfg=config.WALKFORWARD,
+        min_train_rows=int(model_cfg.get("min_train_rows", 3)),
+        show_progress=True,
+    )
+    print()
+    if selections.empty:
+        print("(empty — check WALKFORWARD / training-table coverage)")
+        return
+    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
+    if len(selections) > config.PREVIEW_ROWS:
+        print("\n...\n")
+        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
 
 
 if __name__ == "__main__":

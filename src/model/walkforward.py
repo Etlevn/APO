@@ -112,6 +112,147 @@ def _select_for_decision(
     }
 
 
+def _selection_calendar(
+    table: pd.DataFrame,
+    walkforward_cfg: dict,
+) -> tuple[list[pd.Timestamp], list[str], list[str]]:
+    """Live decision dates × strategies × position modes present in ``table``."""
+    first_decision = pd.Timestamp(walkforward_cfg["first_decision_date"]).normalize()
+    if "is_model_decision" in table.columns:
+        decision_frame = table.loc[table["is_model_decision"]]
+    else:
+        decision_frame = table.loc[pd.to_datetime(table["decision_date"]) >= first_decision]
+    decisions = sorted(pd.to_datetime(decision_frame["decision_date"]).unique())
+    strategies = sorted(table["strategy_id"].astype(str).unique())
+    position_modes = sorted(table["position_mode"].astype(str).unique())
+    return decisions, strategies, position_modes
+
+
+def _select_hist_mean_for_decision(
+    table: pd.DataFrame,
+    *,
+    strategy_id: str,
+    position_mode: str,
+    decision: pd.Timestamp,
+    walkforward_cfg: dict,
+    min_train_rows: int = 3,
+) -> dict[str, object] | None:
+    """
+    Non-ML baseline: pick the candidate with the highest mean realized label
+    over the same causal train window used by conditional models.
+    """
+    train = table.loc[
+        _train_mask(
+            table,
+            strategy_id=strategy_id,
+            position_mode=position_mode,
+            decision=decision,
+            walkforward_cfg=walkforward_cfg,
+        )
+    ]
+    if len(train) < min_train_rows:
+        return None
+
+    today = table.loc[
+        (table["strategy_id"] == strategy_id)
+        & (table["position_mode"].astype(str) == str(position_mode))
+        & (pd.to_datetime(table["decision_date"]) == pd.Timestamp(decision).normalize())
+    ]
+    if today.empty:
+        return None
+
+    scores = train.groupby("candidate_id", sort=False)["label"].mean()
+    scored = today.copy()
+    scored["_hist_mean"] = scored["candidate_id"].map(scores)
+    scored = scored.dropna(subset=["_hist_mean"])
+    if scored.empty:
+        return None
+
+    # Highest historical mean; ties → lexicographically smallest candidate_id.
+    scored = scored.sort_values(
+        ["_hist_mean", "candidate_id"],
+        ascending=[False, True],
+        kind="mergesort",
+    )
+    best = scored.iloc[0]
+    return {
+        "decision_date": pd.Timestamp(decision).normalize(),
+        "model_id": "hist_mean",
+        "position_mode": str(position_mode),
+        "strategy_id": strategy_id,
+        "candidate_id": best["candidate_id"],
+        "lookback": best["lookback"],
+        "ma_window": best["ma_window"],
+        "entry_z": best["entry_z"],
+        "predicted_label": float(best["_hist_mean"]),
+        "realized_label": float(best["label"]),
+        "train_rows": int(len(train)),
+    }
+
+
+def run_hist_mean_selection(
+    table: pd.DataFrame,
+    *,
+    walkforward_cfg: dict,
+    min_train_rows: int = 3,
+    show_progress: bool = False,
+) -> pd.DataFrame:
+    """
+    Walk-forward candidate selection using historical mean labels (no ML fit).
+
+    Output schema matches ``run_walkforward_selection`` / ``main_selections.csv``:
+    one row per (decision_date, position_mode, strategy_id) with ``model_id='hist_mean'``.
+    ``predicted_label`` stores the selected candidate's historical mean label.
+    """
+    if table.empty:
+        return pd.DataFrame()
+
+    if "position_mode" not in table.columns:
+        table = table.copy()
+        table["position_mode"] = "long_short"
+
+    decisions, strategies, position_modes = _selection_calendar(table, walkforward_cfg)
+    jobs = [
+        (position_mode, decision, strategy_id)
+        for position_mode in position_modes
+        for decision in decisions
+        for strategy_id in strategies
+    ]
+    rows: list[dict[str, object]] = []
+    pbar = ProgressBar(len(jobs), desc="hist_mean") if show_progress else None
+    try:
+        for position_mode, decision, strategy_id in jobs:
+            if pbar is not None:
+                pbar.set_description(f"hist_mean/{position_mode}")
+                pbar.set_postfix(
+                    date=pd.Timestamp(decision).date().isoformat(),
+                    strategy=str(strategy_id),
+                )
+            selected = _select_hist_mean_for_decision(
+                table,
+                strategy_id=strategy_id,
+                position_mode=position_mode,
+                decision=decision,
+                walkforward_cfg=walkforward_cfg,
+                min_train_rows=min_train_rows,
+            )
+            if selected is not None:
+                rows.append(selected)
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
+
+    if not rows:
+        return pd.DataFrame()
+
+    frame = pd.DataFrame(rows)
+    return frame.sort_values(
+        ["model_id", "position_mode", "decision_date", "strategy_id"]
+    ).reset_index(drop=True)
+
+
 def run_walkforward_selection(
     table: pd.DataFrame,
     *,
@@ -137,14 +278,7 @@ def run_walkforward_selection(
         table["position_mode"] = "long_short"
 
     ids = resolve_model_ids(model_cfg, model_ids)
-    first_decision = pd.Timestamp(walkforward_cfg["first_decision_date"]).normalize()
-    if "is_model_decision" in table.columns:
-        decision_frame = table.loc[table["is_model_decision"]]
-    else:
-        decision_frame = table.loc[pd.to_datetime(table["decision_date"]) >= first_decision]
-    decisions = sorted(pd.to_datetime(decision_frame["decision_date"]).unique())
-    strategies = sorted(table["strategy_id"].astype(str).unique())
-    position_modes = sorted(table["position_mode"].astype(str).unique())
+    decisions, strategies, position_modes = _selection_calendar(table, walkforward_cfg)
 
     jobs = [
         (model_id, position_mode, decision, strategy_id)

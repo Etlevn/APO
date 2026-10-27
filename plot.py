@@ -27,9 +27,9 @@ import config
 #   1 SLEEVE_IDS:    ["cpo", "baseline", "market"]     — which path roles
 #   2 POSITION_IDS:  ["long_short", "long_only", "market_overlay"]
 #   3 STRATEGY_IDS:  ["blend", "momentum", "trend", "mean_reversion"]
-#   4 MODEL_IDS:     ["hgb", "ridge", "rf"]            — cpo only
+#   4 MODEL_IDS:     ["hgb", "ridge", "rf", "hist_mean"]  — cpo only
 #   5 DATE_START/END: "YYYY-MM-DD" | None (= open)
-# Colors: market=gray, baseline=black, cpo=colored.
+# Colors: market=gray, baseline=black, cpo=colored (incl. hist_mean).
 # Output: plot_{slv}_{pos}_{str}_{mdl}.png  (abbr; empty filter → "a")
 
 PERIODS_CSV = config.OUTPUT_DIR / "eval_periods.csv"
@@ -37,7 +37,7 @@ PERIODS_CSV = config.OUTPUT_DIR / "eval_periods.csv"
 SLEEVE_IDS: list[str] = ["cpo", "baseline", "market"]
 POSITION_IDS: list[str] = ["market_overlay"]
 STRATEGY_IDS: list[str] = ["blend"]
-MODEL_IDS: list[str] = []
+MODEL_IDS: list[str] = []  # [] = all cpo models in CSV, e.g. hgb/ridge/rf/hist_mean
 DATE_START: str | None = None
 DATE_END: str | None = None
 
@@ -50,7 +50,7 @@ from evaluate import save_equity_plot
 _SLEEVE_ABBR = {"cpo": "c", "baseline": "b", "market": "m"}
 _POSITION_ABBR = {"long_short": "ls", "long_only": "lo", "market_overlay": "ov"}
 _STRATEGY_ABBR = {"blend": "bl", "momentum": "mo", "trend": "tr", "mean_reversion": "mr"}
-_MODEL_ABBR = {"hgb": "h", "ridge": "ri", "rf": "rf"}
+_MODEL_ABBR = {"hgb": "h", "ridge": "ri", "rf": "rf", "hist_mean": "hm"}
 
 
 def _abbr_token(ids: list[str], mapping: dict[str, str]) -> str:

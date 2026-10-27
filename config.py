@@ -51,7 +51,7 @@ PREVIEW_ROWS: int = 10
 WALKFORWARD: dict[str, str] = {
     "mode": "rolling",  # "rolling" | "expanding"
     "train_window": "2y",  # fit history length; "2y" | "1y" | "6m" | "3m" | "1m" | "1w" | "1d"
-    "sample_freq": "1m",  # how often to build training rows (can be denser than rebalance)
+    "sample_freq": "1w",  # how often to build training rows (can be denser than rebalance)
     "rebalance_freq": "1m",  # how often to live-select params / rebalance; same span choices
     "label_horizon": "1m",  # forward window for label y / OOS hold; same span choices
     "first_decision_date": "2017-01-01",  # first model selection date ("YYYY-MM-DD")
@@ -88,4 +88,8 @@ CANDIDATE: dict[str, dict[str, list]] = {
 
 # Which conditional models to run. One id or several.
 # Choices: "hgb" | "ridge" | "rf". Hyperparameters live in config/model.yaml.
-MODEL_RUN: str | list[str] = ["hgb", "ridge", "rf"] 
+MODEL_RUN: str | list[str] = ["hgb", "ridge", "rf"]
+
+# Non-ML historical-mean candidate selection.
+# When True, main.py also writes model_id="hist_mean" rows into SELECTIONS_CSV.
+HIST_MEAN_RUN: bool = True
