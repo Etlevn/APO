@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -91,15 +92,23 @@ def _download_panel(
     end: str | None,
 ) -> pd.DataFrame:
     # auto_adjust=False so yfinance returns both Close and Adj Close.
-    raw = yf.download(
-        tickers=tickers,
-        start=start,
-        end=end,
-        auto_adjust=False,
-        progress=False,
-        group_by="ticker",
-        threads=True,
-    )
+    # yfinance still uses DataFrame inplace= under pandas 3.1 (PDEP-8);
+    # silence only that third-party deprecation for the download call.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=pd.errors.Pandas4Warning,
+            module=r"yfinance(\.|$)",
+        )
+        raw = yf.download(
+            tickers=tickers,
+            start=start,
+            end=end,
+            auto_adjust=False,
+            progress=False,
+            group_by="ticker",
+            threads=True,
+        )
     if raw is None or raw.empty:
         raise RuntimeError(
             f"yfinance returned no rows for tickers={tickers}, start={start}, end={end}."

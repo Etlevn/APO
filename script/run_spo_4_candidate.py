@@ -1,8 +1,8 @@
 """
-Manual preview entry for the candidate module.
+SPO preview entry for the candidate module.
 
 Usage (from project root):
-    python script/run_4_candidate.py
+    python script/run_spo_4_candidate.py
 
 Builds the SPO parameter grid from config.CANDIDATE and prints a terminal preview.
 Does not fetch market data or use cache.

@@ -1,4 +1,8 @@
-"""Walk-forward fit of F(E, x) and candidate selection at each decision date."""
+"""Walk-forward fit of conditional models and candidate selection.
+
+SPO: F(E, strategy params) → pick parameters per strategy × position_mode.
+PWO: F(E, weights) → pick long-only ETF weight vectors per decision date.
+"""
 
 from __future__ import annotations
 
@@ -13,17 +17,60 @@ from util import ProgressBar
 
 from .registry import create_model, resolve_model_ids
 
-INPUT_COLUMNS = (*FEATURE_COLUMNS, *PARAM_COLUMNS)
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
 
 
-def _design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
-    matrix = frame.loc[:, list(INPUT_COLUMNS)].copy()
+def _fit_predict_best(
+    train: pd.DataFrame,
+    today: pd.DataFrame,
+    *,
+    model_id: str,
+    model_cfg: dict,
+    design_fn,
+) -> tuple[pd.Series, float, np.ndarray] | None:
+    """Fit on ``train``, score ``today``; return (best_row, pred, all_preds)."""
+    x_train = design_fn(train)
+    y_train = train["label"].astype(float).to_numpy()
+    x_today = design_fn(today)
+
+    if model_cfg.get("standardize", True):
+        scaler = StandardScaler()
+        x_train_arr = scaler.fit_transform(x_train.to_numpy(dtype=float))
+        x_today_arr = scaler.transform(x_today.to_numpy(dtype=float))
+    else:
+        x_train_arr = x_train.to_numpy(dtype=float)
+        x_today_arr = x_today.to_numpy(dtype=float)
+
+    model = create_model(model_id, model_cfg)
+    model.fit(x_train_arr, y_train)
+    preds = np.asarray(model.predict(x_today_arr), dtype=float)
+    best_idx = int(np.argmax(preds))
+    return today.iloc[best_idx], float(preds[best_idx]), preds
+
+
+def _weight_columns(table: pd.DataFrame) -> list[str]:
+    return [c for c in table.columns if str(c).startswith("w_")]
+
+
+# ---------------------------------------------------------------------------
+# SPO
+# ---------------------------------------------------------------------------
+
+SPO_INPUT_COLUMNS = (*FEATURE_COLUMNS, *PARAM_COLUMNS)
+# Backward-compatible alias
+INPUT_COLUMNS = SPO_INPUT_COLUMNS
+
+
+def _spo_design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
+    matrix = frame.loc[:, list(SPO_INPUT_COLUMNS)].copy()
     for col in PARAM_COLUMNS:
         matrix[col] = pd.to_numeric(matrix[col], errors="coerce")
     return matrix.fillna(0.0)
 
 
-def _train_mask(
+def _spo_train_mask(
     table: pd.DataFrame,
     *,
     strategy_id: str,
@@ -47,7 +94,11 @@ def _train_mask(
     return realized & (pd.to_datetime(table["decision_date"]) >= train_start)
 
 
-def _select_for_decision(
+# Backward-compatible aliases used by hist_mean SPO path
+_train_mask = _spo_train_mask
+
+
+def _select_spo_for_decision(
     table: pd.DataFrame,
     *,
     model_id: str,
@@ -58,7 +109,7 @@ def _select_for_decision(
     walkforward_cfg: dict,
 ) -> dict[str, object] | None:
     train = table.loc[
-        _train_mask(
+        _spo_train_mask(
             table,
             strategy_id=strategy_id,
             position_mode=position_mode,
@@ -70,7 +121,6 @@ def _select_for_decision(
     if len(train) < min_rows:
         return None
 
-    # Current-date scoring rows: reuse feature snapshot from any row at this decision.
     today = table.loc[
         (table["strategy_id"] == strategy_id)
         & (table["position_mode"].astype(str) == str(position_mode))
@@ -79,24 +129,16 @@ def _select_for_decision(
     if today.empty:
         return None
 
-    x_train = _design_matrix(train)
-    y_train = train["label"].astype(float).to_numpy()
-    x_today = _design_matrix(today)
-
-    if model_cfg.get("standardize", True):
-        scaler = StandardScaler()
-        x_train_arr = scaler.fit_transform(x_train.to_numpy(dtype=float))
-        x_today_arr = scaler.transform(x_today.to_numpy(dtype=float))
-    else:
-        x_train_arr = x_train.to_numpy(dtype=float)
-        x_today_arr = x_today.to_numpy(dtype=float)
-
-    model = create_model(model_id, model_cfg)
-    model.fit(x_train_arr, y_train)
-    preds = model.predict(x_today_arr)
-
-    best_idx = int(np.argmax(preds))
-    best = today.iloc[best_idx]
+    fitted = _fit_predict_best(
+        train,
+        today,
+        model_id=model_id,
+        model_cfg=model_cfg,
+        design_fn=_spo_design_matrix,
+    )
+    if fitted is None:
+        return None
+    best, predicted, _ = fitted
     return {
         "decision_date": pd.Timestamp(decision).normalize(),
         "model_id": model_id,
@@ -106,13 +148,13 @@ def _select_for_decision(
         "lookback": best["lookback"],
         "ma_window": best["ma_window"],
         "entry_z": best["entry_z"],
-        "predicted_label": float(preds[best_idx]),
+        "predicted_label": predicted,
         "realized_label": float(best["label"]),
         "train_rows": int(len(train)),
     }
 
 
-def _selection_calendar(
+def _spo_selection_calendar(
     table: pd.DataFrame,
     walkforward_cfg: dict,
 ) -> tuple[list[pd.Timestamp], list[str], list[str]]:
@@ -128,132 +170,11 @@ def _selection_calendar(
     return decisions, strategies, position_modes
 
 
-def _select_hist_mean_for_decision(
-    table: pd.DataFrame,
-    *,
-    strategy_id: str,
-    position_mode: str,
-    decision: pd.Timestamp,
-    walkforward_cfg: dict,
-    min_train_rows: int = 3,
-) -> dict[str, object] | None:
-    """
-    Non-ML baseline: pick the candidate with the highest mean realized label
-    over the same causal train window used by conditional models.
-    """
-    train = table.loc[
-        _train_mask(
-            table,
-            strategy_id=strategy_id,
-            position_mode=position_mode,
-            decision=decision,
-            walkforward_cfg=walkforward_cfg,
-        )
-    ]
-    if len(train) < min_train_rows:
-        return None
-
-    today = table.loc[
-        (table["strategy_id"] == strategy_id)
-        & (table["position_mode"].astype(str) == str(position_mode))
-        & (pd.to_datetime(table["decision_date"]) == pd.Timestamp(decision).normalize())
-    ]
-    if today.empty:
-        return None
-
-    scores = train.groupby("candidate_id", sort=False)["label"].mean()
-    scored = today.copy()
-    scored["_hist_mean"] = scored["candidate_id"].map(scores)
-    scored = scored.dropna(subset=["_hist_mean"])
-    if scored.empty:
-        return None
-
-    # Highest historical mean; ties → lexicographically smallest candidate_id.
-    scored = scored.sort_values(
-        ["_hist_mean", "candidate_id"],
-        ascending=[False, True],
-        kind="mergesort",
-    )
-    best = scored.iloc[0]
-    return {
-        "decision_date": pd.Timestamp(decision).normalize(),
-        "model_id": "hist_mean",
-        "position_mode": str(position_mode),
-        "strategy_id": strategy_id,
-        "candidate_id": best["candidate_id"],
-        "lookback": best["lookback"],
-        "ma_window": best["ma_window"],
-        "entry_z": best["entry_z"],
-        "predicted_label": float(best["_hist_mean"]),
-        "realized_label": float(best["label"]),
-        "train_rows": int(len(train)),
-    }
+# Backward-compatible alias
+_selection_calendar = _spo_selection_calendar
 
 
-def run_hist_mean_selection(
-    table: pd.DataFrame,
-    *,
-    walkforward_cfg: dict,
-    min_train_rows: int = 3,
-    show_progress: bool = False,
-) -> pd.DataFrame:
-    """
-    Walk-forward candidate selection using historical mean labels (no ML fit).
-
-    Output schema matches ``run_walkforward_selection`` / ``main_selections.csv``:
-    one row per (decision_date, position_mode, strategy_id) with ``model_id='hist_mean'``.
-    ``predicted_label`` stores the selected candidate's historical mean label.
-    """
-    if table.empty:
-        return pd.DataFrame()
-
-    if "position_mode" not in table.columns:
-        table = table.copy()
-        table["position_mode"] = "long_short"
-
-    decisions, strategies, position_modes = _selection_calendar(table, walkforward_cfg)
-    jobs = [
-        (position_mode, decision, strategy_id)
-        for position_mode in position_modes
-        for decision in decisions
-        for strategy_id in strategies
-    ]
-    rows: list[dict[str, object]] = []
-    pbar = ProgressBar(len(jobs), desc="hist_mean") if show_progress else None
-    try:
-        for position_mode, decision, strategy_id in jobs:
-            if pbar is not None:
-                pbar.set_description(f"hist_mean/{position_mode}")
-                pbar.set_postfix(
-                    date=pd.Timestamp(decision).date().isoformat(),
-                    strategy=str(strategy_id),
-                )
-            selected = _select_hist_mean_for_decision(
-                table,
-                strategy_id=strategy_id,
-                position_mode=position_mode,
-                decision=decision,
-                walkforward_cfg=walkforward_cfg,
-                min_train_rows=min_train_rows,
-            )
-            if selected is not None:
-                rows.append(selected)
-            if pbar is not None:
-                pbar.update(1)
-    finally:
-        if pbar is not None:
-            pbar.close()
-
-    if not rows:
-        return pd.DataFrame()
-
-    frame = pd.DataFrame(rows)
-    return frame.sort_values(
-        ["model_id", "position_mode", "decision_date", "strategy_id"]
-    ).reset_index(drop=True)
-
-
-def run_walkforward_selection(
+def run_spo_walkforward_selection(
     table: pd.DataFrame,
     *,
     walkforward_cfg: dict,
@@ -262,13 +183,11 @@ def run_walkforward_selection(
     show_progress: bool = False,
 ) -> pd.DataFrame:
     """
-    For each model and model-decision date with enough history, select the best
-    candidate per strategy by predicted forward label.
+    SPO walk-forward: for each model and live decision, select the best parameter
+    candidate per strategy × position_mode by predicted forward label.
 
     ``model_ids`` may be one id (``\"hgb\"``) or several (``[\"hgb\", \"ridge\"]``).
     If omitted, uses ``model_cfg[\"run\"]`` (see ``resolve_model_ids``).
-
-    Warmup sample dates (before first_decision_date) are used only for training.
     """
     if table.empty:
         return pd.DataFrame()
@@ -278,7 +197,7 @@ def run_walkforward_selection(
         table["position_mode"] = "long_short"
 
     ids = resolve_model_ids(model_cfg, model_ids)
-    decisions, strategies, position_modes = _selection_calendar(table, walkforward_cfg)
+    decisions, strategies, position_modes = _spo_selection_calendar(table, walkforward_cfg)
 
     jobs = [
         (model_id, position_mode, decision, strategy_id)
@@ -288,16 +207,16 @@ def run_walkforward_selection(
         for strategy_id in strategies
     ]
     rows: list[dict[str, object]] = []
-    pbar = ProgressBar(len(jobs), desc="model") if show_progress else None
+    pbar = ProgressBar(len(jobs), desc="spo_model") if show_progress else None
     try:
         for model_id, position_mode, decision, strategy_id in jobs:
             if pbar is not None:
-                pbar.set_description(f"model/{model_id}/{position_mode}")
+                pbar.set_description(f"spo/{model_id}/{position_mode}")
                 pbar.set_postfix(
                     date=pd.Timestamp(decision).date().isoformat(),
                     strategy=str(strategy_id),
                 )
-            selected = _select_for_decision(
+            selected = _select_spo_for_decision(
                 table,
                 model_id=model_id,
                 model_cfg=model_cfg,
@@ -321,3 +240,156 @@ def run_walkforward_selection(
     return frame.sort_values(
         ["model_id", "position_mode", "decision_date", "strategy_id"]
     ).reset_index(drop=True)
+
+
+# Backward-compatible alias
+run_walkforward_selection = run_spo_walkforward_selection
+
+
+# ---------------------------------------------------------------------------
+# PWO
+# ---------------------------------------------------------------------------
+
+
+def _pwo_train_mask(
+    table: pd.DataFrame,
+    *,
+    decision: pd.Timestamp,
+    walkforward_cfg: dict,
+) -> pd.Series:
+    decision = pd.Timestamp(decision).normalize()
+    realized = (pd.to_datetime(table["decision_date"]) < decision) & (
+        pd.to_datetime(table["label_end"]) <= decision
+    )
+    mode = walkforward_cfg.get("mode", "rolling")
+    if mode == "expanding":
+        return realized
+    if mode != "rolling":
+        raise ValueError(f"Unsupported walkforward mode: {mode!r}")
+    train_start = decision - parse_span(walkforward_cfg["train_window"])
+    return realized & (pd.to_datetime(table["decision_date"]) >= train_start)
+
+
+def _pwo_decision_dates(table: pd.DataFrame, walkforward_cfg: dict) -> list[pd.Timestamp]:
+    first_decision = pd.Timestamp(walkforward_cfg["first_decision_date"]).normalize()
+    if "is_model_decision" in table.columns:
+        decision_frame = table.loc[table["is_model_decision"]]
+    else:
+        decision_frame = table.loc[pd.to_datetime(table["decision_date"]) >= first_decision]
+    return sorted(pd.to_datetime(decision_frame["decision_date"]).unique())
+
+
+def _pwo_design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
+    w_cols = _weight_columns(frame)
+    cols = [*FEATURE_COLUMNS, *w_cols]
+    matrix = frame.loc[:, cols].copy()
+    for col in w_cols:
+        matrix[col] = pd.to_numeric(matrix[col], errors="coerce")
+    return matrix.fillna(0.0)
+
+
+def _select_pwo_for_decision(
+    table: pd.DataFrame,
+    *,
+    model_id: str,
+    model_cfg: dict,
+    decision: pd.Timestamp,
+    walkforward_cfg: dict,
+) -> dict[str, object] | None:
+    train = table.loc[
+        _pwo_train_mask(table, decision=decision, walkforward_cfg=walkforward_cfg)
+    ]
+    min_rows = int(model_cfg.get("min_train_rows", 3))
+    if len(train) < min_rows:
+        return None
+
+    today = table.loc[
+        pd.to_datetime(table["decision_date"]) == pd.Timestamp(decision).normalize()
+    ]
+    if today.empty:
+        return None
+
+    fitted = _fit_predict_best(
+        train,
+        today,
+        model_id=model_id,
+        model_cfg=model_cfg,
+        design_fn=_pwo_design_matrix,
+    )
+    if fitted is None:
+        return None
+    best, predicted, _ = fitted
+    row: dict[str, object] = {
+        "decision_date": pd.Timestamp(decision).normalize(),
+        "model_id": model_id,
+        "candidate_id": best["candidate_id"],
+        "predicted_label": predicted,
+        "realized_label": float(best["label"]),
+        "train_rows": int(len(train)),
+    }
+    if "is_equal_weight" in best.index:
+        row["is_equal_weight"] = bool(best["is_equal_weight"])
+    for col in _weight_columns(table):
+        row[col] = float(best[col])
+    return row
+
+
+def run_pwo_walkforward_selection(
+    table: pd.DataFrame,
+    *,
+    walkforward_cfg: dict,
+    model_cfg: dict,
+    model_ids: str | list[str] | None = None,
+    show_progress: bool = False,
+) -> pd.DataFrame:
+    """
+    PWO walk-forward: for each model and live decision, select the best weight
+    candidate by predicted forward portfolio label.
+
+    Output schema matches ``run_pwo_hist_mean_selection`` (plus ML ``model_id``).
+    """
+    if table.empty:
+        return pd.DataFrame()
+
+    ids = resolve_model_ids(model_cfg, model_ids)
+    decisions = _pwo_decision_dates(table, walkforward_cfg)
+    jobs = [(model_id, decision) for model_id in ids for decision in decisions]
+    rows: list[dict[str, object]] = []
+    pbar = ProgressBar(len(jobs), desc="pwo_model") if show_progress else None
+    try:
+        for model_id, decision in jobs:
+            if pbar is not None:
+                pbar.set_description(f"pwo/{model_id}")
+                pbar.set_postfix(date=pd.Timestamp(decision).date().isoformat())
+            selected = _select_pwo_for_decision(
+                table,
+                model_id=model_id,
+                model_cfg=model_cfg,
+                decision=decision,
+                walkforward_cfg=walkforward_cfg,
+            )
+            if selected is not None:
+                rows.append(selected)
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
+
+    if not rows:
+        return pd.DataFrame()
+
+    frame = pd.DataFrame(rows)
+    w_cols = _weight_columns(frame)
+    ordered = [
+        "decision_date",
+        "model_id",
+        "candidate_id",
+        *(["is_equal_weight"] if "is_equal_weight" in frame.columns else []),
+        *w_cols,
+        "predicted_label",
+        "realized_label",
+        "train_rows",
+    ]
+    frame = frame.loc[:, ordered]
+    return frame.sort_values(["model_id", "decision_date"]).reset_index(drop=True)

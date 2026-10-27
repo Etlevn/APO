@@ -1,11 +1,11 @@
 """
-Manual preview entry for the feature module.
+SPO preview entry for the feature module.
 
 Usage (from project root):
-    python script/run_2_feature.py
+    python script/run_spo_2_feature.py
 
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
-Caching is handled only by main.py.
+Caching is handled only by main_spo.py.
 """
 
 from __future__ import annotations

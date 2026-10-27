@@ -1,4 +1,4 @@
-"""Single equity-curve figure for evaluate sleeves."""
+"""SPO equity-curve figure for evaluate sleeves."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from .metrics import equity_curve
 
 _MARKET_COLOR = "#888888"
 _BASELINE_COLOR = "#000000"
+_HIST_MEAN_COLOR = "#d62728"  # fixed red for hist_mean in SPO and PWO plots
 _CPO_COLORS = (
     "#1f77b4",
-    "#d62728",
     "#2ca02c",
     "#ff7f0e",
     "#9467bd",
@@ -97,7 +97,7 @@ def _filter_plot_rows(
     return frame.reset_index(drop=True)
 
 
-def save_equity_plot(
+def save_spo_equity_plot(
     periods: pd.DataFrame,
     path: str | Path,
     *,
@@ -109,9 +109,9 @@ def save_equity_plot(
     date_end: str | None = None,
 ) -> Path:
     """
-    Write one PNG. Filters apply only to the figure (full ``periods`` unchanged).
+    Write one SPO PNG. Filters apply only to the figure (full ``periods`` unchanged).
 
-    Colors: market = gray, baseline = black, cpo = colored cycle.
+    Colors: market = gray, baseline = black, hist_mean = red, other cpo = cycle.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,10 +140,13 @@ def save_equity_plot(
         ordered = group.sort_values("decision_date")
         equity = equity_curve(ordered["period_return"])
         sleeve_s = str(sleeve)
+        model_s = str(model_id)
         if sleeve_s == "market":
             color = _MARKET_COLOR
         elif sleeve_s == "baseline":
             color = _BASELINE_COLOR
+        elif sleeve_s == "cpo" and model_s == "hist_mean":
+            color = _HIST_MEAN_COLOR
         else:
             color = _CPO_COLORS[cpo_color_i % len(_CPO_COLORS)]
             cpo_color_i += 1

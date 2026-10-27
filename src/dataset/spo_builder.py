@@ -119,7 +119,7 @@ def _forward_label(
     return value, int(len(window))
 
 
-def build_training_table(
+def build_spo_training_table(
     panel: pd.DataFrame,
     *,
     candidate_cfg: dict,

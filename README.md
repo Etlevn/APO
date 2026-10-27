@@ -29,19 +29,16 @@ Edit settings in `config.py` (tickers, walk-forward calendar, strategies, models
 
 ```bash
 # 1) Cached panel → training table → walk-forward selections
-python main.py
-# → output/main_selections.csv
+python main_spo.py   # → output/spo_sel.csv
+python main_pwo.py   # → output/pwo_sel.csv
 
-# 2) Full backtest tables (CPO / baseline / market)
-python eval.py
-# → output/eval_summary.csv, output/eval_periods.csv
-
-# 3) Equity curves from eval periods (edit filters at the top of plot.py)
-python plot.py
-# → output/plot_*.png
+# 2) Backtest tables (+ PWO optional plot)
+python eval_spo.py   # → spo_summary/periods(/diagnosis).csv
+python plot_spo.py   # → spo_plot_*.png
+python eval_pwo.py   # → pwo_summary/periods(/diagnosis).csv (+ pwo_plot_*.png)
 ```
 
-Preview scripts under `script/` fetch data without writing the production selection CSV.
+Preview scripts under `script/`: shared `run_1_data.py`, SPO `run_spo_2_…`–`run_spo_6_…`, PWO `run_pwo_2_…`–`run_pwo_6_…`. They fetch without writing production selection CSVs. Set `config.MODE` to `"spo"` or `"pwo"`.
 
 ## Configuration highlights
 
@@ -60,9 +57,11 @@ Baseline strategy parameters are the **first value** of each list in `CANDIDATE`
 ```
 config.py              # User-editable run settings
 config/                # YAML feature / model recipes
-main.py                # Production selection pipeline
-eval.py                # Backtest → summary + period CSVs
-plot.py                # Equity plots from eval periods
+main_spo.py            # SPO production selection pipeline
+main_pwo.py            # PWO production selection pipeline
+eval_spo.py            # SPO backtest → spo_summary/periods(/diagnosis).csv
+plot_spo.py            # SPO equity plots → spo_plot_*.png
+eval_pwo.py            # PWO backtest (+ optional plot) → pwo_* / pwo_plot_*
 src/
   data/                # Panel download & cache
   dataset/             # CPO training-table builder
@@ -88,8 +87,8 @@ All clocks are **calendar dates** (normalized), not intraday timestamps. The pip
 | Conceptual clock            | Rule in code                                                                                                                                                                              | In artifacts                                                                                                                                                                                                             |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Feature cutoff**          | Features use the latest panel row with `timestamp <= decision_date` (as-of). If no complete as-of feature vector exists, the sample is **dropped** (no look-ahead into the label window). | Not a column; only feature values are stored.                                                                                                                                                                            |
-| **Decision**                | Live selection / sample anchor date.                                                                                                                                                      | `decision_date` in `main_selections.csv` and `eval_periods.csv`.                                                                                                                                                         |
-| **Execution / label start** | Realized returns and hold P&L use bars strictly after the decision: `(decision_date, label_end]`.                                                                                         | Implied by that open interval; no separate `execution_time`. Hold end is `label_end` in `eval_periods.csv` (and in the in-memory training table).                                                                        |
+| **Decision**                | Live selection / sample anchor date.                                                                                                                                                      | `decision_date` in `spo_sel.csv` / `pwo_sel.csv` and `spo_periods.csv` / `pwo_periods.csv`.                                                                                                                                                         |
+| **Execution / label start** | Realized returns and hold P&L use bars strictly after the decision: `(decision_date, label_end]`.                                                                                         | Implied by that open interval; no separate `execution_time`. Hold end is `label_end` in `*_periods.csv` (and in the in-memory training table).                                                                        |
 | **Train window**            | For a live decision \(t\): rows with `decision_date < t` and `label_end <= t` (labels fully realized). Rolling mode also requires `decision_date >= t - train_window`.                    | Not written to selection CSV; `train_rows` is the count. In-memory training table has `train_start` (= sample `decision_date - train_window`) but no `train_end` column (`train_end` ≡ live \(t\) under the mask above). |
 
 **Anti-leakage summary:** at decision \(t\), features and model inputs are observable on or before \(t\); incomplete warm-up rows are discarded rather than filled from the future; training labels must have finished by \(t\); evaluation/selection P&L starts after \(t\`.

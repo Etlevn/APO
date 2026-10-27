@@ -1,12 +1,15 @@
 """
-Manual preview entry for the dataset module.
+SPO preview entry for the model module.
 
 Usage (from project root):
-    python script/run_5_dataset.py
+    python script/run_spo_6_model.py
 
-Fetches from yfinance and prints a terminal preview of the CPO training table,
-then a hist_mean (non-ML) selection table with the same schema as
-``main_selections.csv``. Does not read or write cache / output files.
+Fetches from yfinance, builds the CPO training table, runs walk-forward
+selection, and prints a terminal preview. Does not read or write cache.
+Caching is handled only by main_spo.py.
+
+Preview scope: first POSITION_RUN mode and first MODEL_RUN model;
+STRATEGY_RUN and full CANDIDATE grids unchanged. Full runs belong in main_spo.py.
 """
 
 from __future__ import annotations
@@ -22,24 +25,27 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import config
-from data import describe_panel, load_etf_panel
-from dataset import build_training_table
-from model import run_hist_mean_selection
-from strategy import select_candidate_cfg
+from data import load_etf_panel
+from dataset import build_spo_training_table
+from model import resolve_model_ids, run_spo_walkforward_selection
+from strategy import resolve_position_ids, select_candidate_cfg
 from util import load_yaml
 
 
 def main() -> None:
     default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
-    model_cfg = load_yaml(config.CONFIG_DIR / "model.yaml")
+    model_yaml = load_yaml(config.CONFIG_DIR / "model.yaml")
+    preview_model = resolve_model_ids({**model_yaml, "run": config.MODEL_RUN})[0]
+    model_cfg = {**model_yaml, "run": preview_model}
     candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
+    preview_position = resolve_position_ids(config.POSITION_RUN)[0]
 
     panel = load_etf_panel(
         tickers=config.TICKERS,
         start=config.START,
         end=config.END,
     )
-    table = build_training_table(
+    table = build_spo_training_table(
         panel,
         candidate_cfg=candidate_cfg,
         feature_cfg=default_cfg.get("feature", {}),
@@ -48,31 +54,20 @@ def main() -> None:
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
         weights=config.WEIGHTS,
-        position_modes=config.POSITION_RUN,
+        position_modes=preview_position,
         overlay_scale=config.POSITION_OVERLAY_SCALE,
         show_progress=True,
     )
-
-    print(table.head(config.PREVIEW_ROWS).to_string(index=False))
-    print("\n...\n")
-    print(table.tail(config.PREVIEW_ROWS).to_string(index=False))
-    print()
-    print(describe_panel(table, with_dtype=False).to_string())
-
-    selections = run_hist_mean_selection(
+    selections = run_spo_walkforward_selection(
         table,
         walkforward_cfg=config.WALKFORWARD,
-        min_train_rows=int(model_cfg.get("min_train_rows", 3)),
+        model_cfg=model_cfg,
         show_progress=True,
     )
-    print()
-    if selections.empty:
-        print("(empty — check WALKFORWARD / training-table coverage)")
-        return
+
     print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
-    if len(selections) > config.PREVIEW_ROWS:
-        print("\n...\n")
-        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print("\n...\n")
+    print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
 
 
 if __name__ == "__main__":

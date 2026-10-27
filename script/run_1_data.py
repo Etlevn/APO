@@ -1,11 +1,11 @@
 """
-Manual preview entry for the data module.
+Shared preview entry for the data module (SPO + PWO).
 
 Usage (from project root):
     python script/run_1_data.py
 
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
-Caching is handled only by main.py.
+Caching is handled only by main_spo.py / main_pwo.py.
 """
 
 from __future__ import annotations

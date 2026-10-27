@@ -1,12 +1,13 @@
 """
-Evaluate entry: full backtest tables only (no plotting).
+SPO evaluate entry: full backtest tables only (no plotting).
 
 Usage (from project root):
-    python eval.py
+    python eval_spo.py
 
 Writes ``SUMMARY_CSV`` and ``PERIODS_CSV`` under output/.
 When ``RUN_DIAGNOSIS`` is True and selections include hist_mean, also writes
 ``DIAGNOSIS_CSV`` (ML vs hist_mean selection diagnosis).
+Plotting: ``python plot_spo.py``.
 """
 
 from __future__ import annotations
@@ -30,9 +31,9 @@ import config
 # Optional: RUN_DIAGNOSIS → DIAGNOSIS_CSV (ML vs hist_mean; no refit).
 
 SELECTIONS_PATH = config.SELECTIONS_CSV
-SUMMARY_CSV = config.OUTPUT_DIR / "eval_summary.csv"
-PERIODS_CSV = config.OUTPUT_DIR / "eval_periods.csv"
-DIAGNOSIS_CSV = config.OUTPUT_DIR / "eval_diagnosis.csv"
+SUMMARY_CSV = config.OUTPUT_DIR / "spo_summary.csv"
+PERIODS_CSV = config.OUTPUT_DIR / "spo_periods.csv"
+DIAGNOSIS_CSV = config.OUTPUT_DIR / "spo_diagnosis.csv"
 
 RUN_DIAGNOSIS: bool = True
 # Diagnosis filters (lists; [] = all in selections except hist_mean for models):
@@ -55,7 +56,7 @@ def _maybe_write_diagnosis(selections_path: Path) -> None:
     if "hist_mean" not in models:
         print(
             "RUN_DIAGNOSIS=True but selections have no model_id='hist_mean'; "
-            "skipping eval_diagnosis.csv (enable HIST_MEAN_RUN in config.py / re-run main)."
+            "skipping diagnosis (enable HIST_MEAN_RUN in config.py / re-run main_spo)."
         )
         return
 
@@ -66,7 +67,7 @@ def _maybe_write_diagnosis(selections_path: Path) -> None:
         strategy_ids=DIAG_STRATEGY_IDS or None,
     )
     if diagnosis.empty:
-        print("Diagnosis produced no rows; skipping eval_diagnosis.csv.")
+        print("Diagnosis produced no rows; skipping spo_diagnosis.csv.")
         return
 
     diagnosis.to_csv(DIAGNOSIS_CSV, index=False)

@@ -1,11 +1,11 @@
 """
-Plot entry: read eval period CSV and write equity PNG only (no evaluation).
+SPO plot entry: read eval period CSV and write equity PNG only (no evaluation).
 
 Usage (from project root):
-    python plot.py
+    python plot_spo.py
 
-Requires an existing ``PERIODS_CSV`` (typically produced earlier by ``eval.py``).
-Output name: plot_{sleeves}_{positions}_{strategies}_{models}.png
+Requires an existing ``PERIODS_CSV`` (typically produced earlier by ``eval_spo.py``).
+Output name: spo_plot_{sleeves}_{positions}_{strategies}_{models}.png
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ import config
 #   3 STRATEGY_IDS:  ["blend", "momentum", "trend", "mean_reversion"]
 #   4 MODEL_IDS:     ["hgb", "ridge", "rf", "hist_mean"]  — cpo only
 #   5 DATE_START/END: "YYYY-MM-DD" | None (= open)
-# Colors: market=gray, baseline=black, cpo=colored (incl. hist_mean).
-# Output: plot_{slv}_{pos}_{str}_{mdl}.png  (abbr; empty filter → "a")
+# Colors: market=gray, baseline=black, hist_mean=red, other cpo=colored cycle.
+# Output: spo_plot_{slv}_{pos}_{str}_{mdl}.png  (abbr; empty filter → "a")
 
-PERIODS_CSV = config.OUTPUT_DIR / "eval_periods.csv"
+PERIODS_CSV = config.OUTPUT_DIR / "spo_periods.csv"
 
 SLEEVE_IDS: list[str] = ["cpo", "baseline", "market"]
 POSITION_IDS: list[str] = ["market_overlay"]
@@ -45,7 +45,7 @@ DATE_END: str | None = None
 
 import pandas as pd
 
-from evaluate import save_equity_plot
+from evaluate import save_spo_equity_plot
 
 _SLEEVE_ABBR = {"cpo": "c", "baseline": "b", "market": "m"}
 _POSITION_ABBR = {"long_short": "ls", "long_only": "lo", "market_overlay": "ov"}
@@ -72,7 +72,7 @@ def equity_png_path(
 ) -> Path:
     stem = "_".join(
         [
-            "plot",
+            "spo_plot",
             _abbr_token(sleeve_ids, _SLEEVE_ABBR),
             _abbr_token(position_ids, _POSITION_ABBR),
             _abbr_token(strategy_ids, _STRATEGY_ABBR),
@@ -86,7 +86,7 @@ def main() -> None:
     path = Path(PERIODS_CSV)
     if not path.is_file():
         raise FileNotFoundError(
-            f"periods file not found: {path}. Run ``python eval.py`` first."
+            f"periods file not found: {path}. Run ``python eval_spo.py`` first."
         )
     periods = pd.read_csv(path)
     if periods.empty:
@@ -99,7 +99,7 @@ def main() -> None:
         model_ids=MODEL_IDS,
     )
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    save_equity_plot(
+    save_spo_equity_plot(
         periods,
         out_path,
         sleeve_ids=SLEEVE_IDS,

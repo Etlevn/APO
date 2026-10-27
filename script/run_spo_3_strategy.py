@@ -1,13 +1,14 @@
 """
-Manual preview entry for the strategy module.
+SPO preview entry for the strategy module.
 
 Usage (from project root):
-    python script/run_3_strategy.py
+    python script/run_spo_3_strategy.py
 
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
-Caching is handled only by main.py.
+Caching is handled only by main_spo.py.
 
-Baseline params = first value of each CANDIDATE grid dimension.
+Preview scope: each strategy uses only the first value of each CANDIDATE
+parameter list (baseline); STRATEGY_RUN itself is unchanged.
 """
 
 from __future__ import annotations

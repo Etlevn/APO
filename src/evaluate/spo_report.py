@@ -106,7 +106,7 @@ def run_evaluation(
     Return full ``(summary, periods)`` for everything in ``selections_path``.
 
     Always includes cpo/baseline singles + blends, and market.
-    Display filters belong in the standalone ``plot.py`` entry, not here.
+    Display filters belong in the standalone ``plot_spo.py`` entry, not here.
     """
     raw = load_selections(selections_path)
     if raw.empty:
