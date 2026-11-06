@@ -28,7 +28,6 @@ from util import load_yaml
 
 
 def main() -> None:
-    default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
     model_cfg = load_yaml(config.CONFIG_DIR / "model.yaml")
 
     panel = load_etf_panel(
@@ -38,21 +37,22 @@ def main() -> None:
     )
     table = build_pwo_training_table(
         panel,
-        feature_cfg=default_cfg.get("feature", {}),
+        feature_cfg={"specs": config.FEATURE_SPECS},
         walkforward_cfg=config.WALKFORWARD,
-        dataset_cfg=default_cfg.get("dataset", {}),
+        dataset_cfg={"label_metric": config.LABEL_METRIC},
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
         n_weight_candidates=config.PWO_N_WEIGHT_CANDIDATES,
         weight_seed=config.PWO_WEIGHT_SEED,
         include_equal_weight=config.PWO_INCLUDE_EQUAL_WEIGHT,
         dirichlet_alpha=config.PWO_DIRICHLET_ALPHA,
+        feature_columns=config.PWO_FEATURE_COLUMNS,
         show_progress=True,
     )
 
-    print(table.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(table.head(10).to_string(index=False))
     print("\n...\n")
-    print(table.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(table.tail(10).to_string(index=False))
     print()
     print(describe_panel(table, with_dtype=False).to_string())
 
@@ -66,10 +66,10 @@ def main() -> None:
     if selections.empty:
         print("(empty — check WALKFORWARD / training-table coverage)")
         return
-    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
-    if len(selections) > config.PREVIEW_ROWS:
+    print(selections.head(10).to_string(index=False))
+    if len(selections) > 10:
         print("\n...\n")
-        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+        print(selections.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

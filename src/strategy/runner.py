@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .breakout import run_breakout
+from .ma_crossover import run_ma_crossover
 from .mean_reversion import run_mean_reversion
 from .momentum import run_momentum
 from .trend import run_trend
@@ -25,7 +27,33 @@ _RUNNERS = {
         entry_z=float(cfg.get("entry_z", 1.0)),
         price_col=price_col,
     ),
+    "ma_crossover": lambda panel, cfg, price_col: run_ma_crossover(
+        panel,
+        fast_window=int(cfg.get("fast_window", 20)),
+        slow_window=int(cfg.get("slow_window", 50)),
+        price_col=price_col,
+    ),
+    "breakout": lambda panel, cfg, price_col: run_breakout(
+        panel,
+        lookback=int(cfg.get("lookback", 20)),
+        price_col=price_col,
+    ),
 }
+
+
+def run_candidate(
+    panel: pd.DataFrame,
+    strategy_id: str,
+    params: dict,
+    *,
+    price_col: str,
+) -> pd.DataFrame:
+    """Run one strategy at one parameter point."""
+    try:
+        runner = _RUNNERS[strategy_id]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported strategy_id: {strategy_id!r}") from exc
+    return runner(panel, params, price_col)
 
 
 def run_strategies(panel: pd.DataFrame, strategy_cfg: dict) -> pd.DataFrame:

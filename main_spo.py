@@ -4,8 +4,8 @@ SPO production entry: cached panel → training table → walk-forward selection
 Usage (from project root):
     python main_spo.py
 
-Writes one table: config.SELECTIONS_CSV (decision_date × model × strategy picks).
-When ``config.HIST_MEAN_RUN`` is True, also appends non-ML ``hist_mean`` rows.
+Writes one table: config.SPO_SELECTIONS_CSV (decision_date × model × strategy picks).
+When ``config.SPO_HIST_MEAN_RUN`` is True, also appends non-ML ``hist_mean`` rows.
 Preview scripts under script/run_spo_*.py fetch without caching and do not write output/.
 """
 
@@ -32,15 +32,15 @@ from util import load_yaml
 
 
 def main() -> None:
-    default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
     model_yaml = load_yaml(config.CONFIG_DIR / "model.yaml")
-    model_cfg = {**model_yaml, "run": config.MODEL_RUN}
-    candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
+    model_cfg = {**model_yaml, "run": config.SPO_MODEL_RUN}
+    candidate_cfg = select_candidate_cfg(config.SPO_CANDIDATE, config.SPO_STRATEGY_RUN)
 
     panel = load_etf_panel_cached(
         tickers=config.TICKERS,
         start=config.START,
         end=config.END,
+        set_id=config.TICKER_SET,
         cache_dir=config.CACHE_DIR,
         cache_format=config.CACHE_FORMAT,
     )
@@ -48,14 +48,15 @@ def main() -> None:
     table = build_spo_training_table(
         panel,
         candidate_cfg=candidate_cfg,
-        feature_cfg=default_cfg.get("feature", {}),
+        feature_cfg={"specs": config.FEATURE_SPECS},
         walkforward_cfg=config.WALKFORWARD,
-        dataset_cfg=default_cfg.get("dataset", {}),
+        dataset_cfg={"label_metric": config.LABEL_METRIC},
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
-        weights=config.WEIGHTS,
-        position_modes=config.POSITION_RUN,
-        overlay_scale=config.POSITION_OVERLAY_SCALE,
+        weights=config.SPO_WEIGHTS,
+        position_modes=config.SPO_POSITION_RUN,
+        overlay_scale=config.SPO_POSITION_OVERLAY_SCALE,
+        feature_columns=config.SPO_FEATURE_COLUMNS,
         show_progress=True,
     )
 
@@ -64,12 +65,13 @@ def main() -> None:
         table,
         walkforward_cfg=config.WALKFORWARD,
         model_cfg=model_cfg,
+        feature_columns=config.SPO_FEATURE_COLUMNS,
         show_progress=True,
     )
     if not ml_selections.empty:
         parts.append(ml_selections)
 
-    if config.HIST_MEAN_RUN:
+    if config.SPO_HIST_MEAN_RUN:
         hist_selections = run_spo_hist_mean_selection(
             table,
             walkforward_cfg=config.WALKFORWARD,
@@ -87,11 +89,11 @@ def main() -> None:
     ).reset_index(drop=True)
 
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    selections.to_csv(config.SELECTIONS_CSV, index=False)
-    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
-    if len(selections) > config.PREVIEW_ROWS:
+    selections.to_csv(config.SPO_SELECTIONS_CSV, index=False)
+    print(selections.head(10).to_string(index=False))
+    if len(selections) > 10:
         print("\n...\n")
-        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+        print(selections.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

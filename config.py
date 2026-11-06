@@ -1,16 +1,27 @@
 """User-editable project settings (data, walk-forward, SPO / PWO selection).
 
-Feature/dataset recipes: config/default.yaml
+SPO strategy grids: config/strategy.yaml
+Market features: config/feature.yaml
 Estimator hyperparameters: config/model.yaml
+ETF universes: config/ticker.yaml
 
 Baseline SPO strategy params are not stored separately: use the first value of
-each CANDIDATE grid dimension (see strategy.baseline_strategy_cfg).
+each parameter list in strategy.yaml (see strategy.baseline_strategy_cfg).
 """
 
 from pathlib import Path
 
+from data.tickers import resolve_ticker_set
+from feature.recipe import load_feature_specs
+from strategy.recipe import load_strategy_recipes, param_grids
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = PROJECT_ROOT / "config"
+
+CACHE_DIR: Path = PROJECT_ROOT / "data"
+CACHE_FORMAT: str = "parquet"  # parquet | csv
+
+OUTPUT_DIR: Path = PROJECT_ROOT / "output"
 
 # =============================================================================
 # MODE
@@ -24,21 +35,22 @@ MODE: str = "spo"  # "spo" | "pwo"
 # Shared (SPO + PWO)
 # =============================================================================
 
-# yfinance ETF daily panel
-TICKERS: list[str] = ["SPY", "TLT", "GLD"]  # "SPY" | "TLT" | "GLD"
+# Which preset in config/ticker.yaml to use. Resolved below into TICKERS.
+TICKER_SET: str = "etf_25"  # "etf_3" | "etf_5" | "etf_10" | "etf_25" | "etf_50" | "etf_100"
+
+# yfinance ETF daily panel for the selected preset.
+TICKERS: list[str] = resolve_ticker_set(TICKER_SET, CONFIG_DIR / "ticker.yaml")
 START: str = "2014-12-31"
 END: str | None = "2026-09-30"  # None = download through the latest available bar; yfinance end is exclusive
-
-CACHE_DIR: Path = PROJECT_ROOT / "data"
-CACHE_FORMAT: str = "parquet"  # parquet | csv
-
-OUTPUT_DIR: Path = PROJECT_ROOT / "output"
 
 # Price column used by features and strategies.
 PRICE_COL: str = "adj_close"
 
-# Preview controls used by script/run_*.py
-PREVIEW_ROWS: int = 10
+# Forward label on (decision_date, label_end].
+LABEL_METRIC: str = "cumulative_return"  # "cumulative_return" | "mean_return"
+
+# Market features shared by SPO and PWO. Each spec is column, fn, and window.
+FEATURE_SPECS: list[dict[str, str | int]] = load_feature_specs(CONFIG_DIR / "feature.yaml")
 
 # Walk-forward. Span choices: "1y" | "6m" | "3m" | "1m" | "1w" | "1d"
 # Labeled samples start at first_decision_date - train_window (warmup for fitting).
@@ -67,61 +79,60 @@ WALKFORWARD: dict[str, str] = {
 # =============================================================================
 
 # Walk-forward selection artifacts written by main_spo.py
-SELECTIONS_CSV: Path = OUTPUT_DIR / "spo_sel.csv"
+SPO_SELECTIONS_CSV: Path = OUTPUT_DIR / "spo_sel.csv"
 
-# Portfolio / cross-section weights across TICKERS when aggregating SPO features
-# and strategy returns (renormalized to sum 1). None = equal weight.
+# Portfolio / cross-section weights across TICKERS when aggregating SPO features and strategy returns (renormalized to sum 1). None = equal weight.
 # Example: {"SPY": 0.5, "TLT": 0.3, "GLD": 0.2}
-WEIGHTS: dict[str, float] | None = None
+SPO_WEIGHTS: dict[str, float] | None = None
 
 # Which strategies to run. One id or several.
-# Choices: "momentum" | "trend" | "mean_reversion"
-STRATEGY_RUN: str | list[str] = ["momentum", "trend", "mean_reversion"]
+# Choices: "momentum" | "trend" | "mean_reversion" | "ma_crossover" | "breakout"
+SPO_STRATEGY_RUN: str | list[str] = [
+    "momentum",
+    "trend",
+    "mean_reversion",
+    "ma_crossover",
+    "breakout",
+]
+
+# Parameter grids from config/strategy.yaml.
+SPO_STRATEGY_RECIPES: dict[str, dict] = load_strategy_recipes(CONFIG_DIR / "strategy.yaml")
+SPO_CANDIDATE: dict[str, dict[str, list]] = param_grids(SPO_STRATEGY_RECIPES)
+
+# Columns from config/feature.yaml passed into the SPO training table and model.
+# Chosen by hand. A feature defined in feature.yaml is not used until it is listed here.
+SPO_FEATURE_COLUMNS: list[str] = ["ret_1", "ret_5", "ret_21", "vol_21", "ma_gap_21"]
 
 # Position / exposure mode on top of strategy signals. One id or several.
 # Choices: "long_short" | "long_only" | "market_overlay"
 #   long_short     — raw ±1 / 0
 #   long_only      — clip shorts: 0 / +1
-#   market_overlay — position = 1 + OVERLAY_SCALE * raw_signal (buy-hold + overlay)
-POSITION_RUN: str | list[str] = ["long_short", "long_only", "market_overlay"]
-POSITION_OVERLAY_SCALE: float = 1.0  # used only by market_overlay
-
-# Finite SPO parameter grids (edit lists to customize the search space).
-# Unused parameters for a strategy should simply be omitted.
-# Only strategies listed in STRATEGY_RUN are used.
-# Baseline = first value of each list (via strategy.baseline_strategy_cfg).
-CANDIDATE: dict[str, dict[str, list]] = {
-    "momentum": {
-        "lookback": [10, 20, 40, 60],
-    },
-    "trend": {
-        "ma_window": [20, 50, 100, 200],
-    },
-    "mean_reversion": {
-        "lookback": [10, 20, 40],
-        "entry_z": [0.5, 1.0, 1.5],
-    },
-}
+#   market_overlay — position = 1 + SPO_POSITION_OVERLAY_SCALE * raw_signal (buy-hold + overlay)
+SPO_POSITION_RUN: str | list[str] = ["long_short", "long_only", "market_overlay"]
+SPO_POSITION_OVERLAY_SCALE: float = 1.0  # used only by market_overlay
 
 # Which conditional models to run for SPO. One id or several.
 # Choices: "hgb" | "ridge" | "rf". Hyperparameters live in config/model.yaml.
-MODEL_RUN: str | list[str] = ["hgb", "ridge", "rf"]
+SPO_MODEL_RUN: str | list[str] = ["hgb", "ridge", "rf"]
 
 # Non-ML historical-mean candidate selection for SPO.
-# When True, main_spo.py also writes model_id="hist_mean" rows into SELECTIONS_CSV.
-HIST_MEAN_RUN: bool = True
+# When True, main_spo.py also writes model_id="hist_mean" rows into SPO_SELECTIONS_CSV.
+SPO_HIST_MEAN_RUN: bool = True
 
 # =============================================================================
 # PWO-specific (portfolio weight optimization)
 # =============================================================================
 # Asset-layer conditional portfolio weights over TICKERS (not strategy sleeves).
-# Training interface: (E_t, w) → forward portfolio performance of buy-and-hold
-# under weight vector w. Candidates and full pipeline land in later PWO steps.
+# Training interface: (E_t, w) → forward portfolio performance of buy-and-hold under weight vector w. Candidates and full pipeline land in later PWO steps.
 
 # Walk-forward selection artifacts written by main_pwo.py
 PWO_SELECTIONS_CSV: Path = OUTPUT_DIR / "pwo_sel.csv"
 
-# Conditional models for PWO weight selection (may mirror MODEL_RUN).
+# Columns from config/feature.yaml passed into the PWO training table and model.
+# Chosen by hand. A feature defined in feature.yaml is not used until it is listed here.
+PWO_FEATURE_COLUMNS: list[str] = ["ret_1", "ret_5", "ret_21", "vol_21", "ma_gap_21"]
+
+# Conditional models for PWO weight selection (may mirror SPO_MODEL_RUN).
 PWO_MODEL_RUN: str | list[str] = ["hgb", "ridge", "rf"]
 
 # When True, main_pwo.py also writes model_id="hist_mean" rows into PWO_SELECTIONS_CSV.
@@ -131,13 +142,12 @@ PWO_HIST_MEAN_RUN: bool = True
 PWO_INCLUDE_EQUAL_WEIGHT: bool = True
 
 # Number of random Dirichlet draws (excludes the equal-weight row when included).
-PWO_N_WEIGHT_CANDIDATES: int = 99
+PWO_N_WEIGHT_CANDIDATES: int = 999
 
 # RNG seed for Dirichlet sampling.
 PWO_WEIGHT_SEED: int = 42
 
-# Dirichlet concentration α. Larger α → samples closer to the mean (equal weight
-# when α is uniform). Smaller α → more corner / concentrated portfolios.
+# Dirichlet concentration α. Larger α → samples closer to the mean (equal weight when α is uniform). Smaller α → more corner / concentrated portfolios.
 #   float → same α for every ticker (default 1.0 = uniform on the simplex)
 #   list[float] → one α per TICKERS entry (must match length)
 PWO_DIRICHLET_ALPHA: float | list[float] = 1.0

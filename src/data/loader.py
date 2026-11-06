@@ -21,18 +21,29 @@ REQUIRED_COLUMNS = (
 )
 
 
+def _yymmdd(value: str) -> str:
+    """Format a YYYY-MM-DD date as YYMMDD for cache filenames."""
+    ts = pd.to_datetime(str(value).strip(), format="%Y-%m-%d", errors="coerce")
+    if pd.isna(ts):
+        raise ValueError(f"cache date must be YYYY-MM-DD, got {value!r}")
+    return ts.strftime("%y%m%d")
+
+
 def cache_path_for(
-    tickers: list[str],
+    set_id: str,
     start: str,
     end: str | None,
     cache_dir: Path,
     cache_format: str = "parquet",
 ) -> Path:
-    """Build a deterministic cache filename for a download request."""
-    end_label = end or "latest"
-    ticker_label = "_".join(tickers)
+    """Build ``{set_id}_{start}-{end}.parquet``, for example ``etf_25_141231-260930.parquet``."""
+    label = str(set_id).strip()
+    if not label or any(char in label for char in "/\\"):
+        raise ValueError(f"set_id must be a file-safe name, got {set_id!r}")
+    start_label = _yymmdd(start)
+    end_label = "latest" if end is None else _yymmdd(end)
     suffix = "parquet" if cache_format == "parquet" else "csv"
-    return Path(cache_dir) / f"etf_{ticker_label}_{start}_{end_label}.{suffix}"
+    return Path(cache_dir) / f"{label}_{start_label}-{end_label}.{suffix}"
 
 
 def _as_day(series: pd.Series) -> pd.Series:
@@ -175,6 +186,7 @@ def load_etf_panel_cached(
     start: str,
     end: str | None = None,
     *,
+    set_id: str,
     cache_dir: Path | str = "data",
     cache_format: str = "parquet",
     force_download: bool = False,
@@ -190,7 +202,7 @@ def load_etf_panel_cached(
     if cache_format not in {"parquet", "csv"}:
         raise ValueError("cache_format must be 'parquet' or 'csv'.")
 
-    path = cache_path_for(tickers, start, end, Path(cache_dir), cache_format)
+    path = cache_path_for(set_id, start, end, Path(cache_dir), cache_format)
     if path.exists() and not force_download:
         return read_etf_cache(path)
 

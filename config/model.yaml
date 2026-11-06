@@ -1,5 +1,5 @@
 # Estimator hyperparameters for conditional performance models.
-# Which models to run: config.py → MODEL_RUN
+# Which models to run: config.py → SPO_MODEL_RUN
 
 random_state: 42
 min_train_rows: 3 # skip fit/select when rolling train fold is smaller

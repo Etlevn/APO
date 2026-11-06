@@ -7,8 +7,8 @@ Usage (from project root):
 Fetches from yfinance and prints a terminal preview. Does not read or write cache.
 Caching is handled only by main_spo.py.
 
-Preview scope: each strategy uses only the first value of each CANDIDATE
-parameter list (baseline); STRATEGY_RUN itself is unchanged.
+Preview scope: each strategy uses only the first value of each SPO_CANDIDATE
+parameter list (baseline); SPO_STRATEGY_RUN itself is unchanged.
 """
 
 from __future__ import annotations
@@ -34,13 +34,13 @@ def main() -> None:
         start=config.START,
         end=config.END,
     )
-    candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
+    candidate_cfg = select_candidate_cfg(config.SPO_CANDIDATE, config.SPO_STRATEGY_RUN)
     strategy_cfg = baseline_strategy_cfg(candidate_cfg, price_col=config.PRICE_COL)
     signals = run_strategies(panel, strategy_cfg)
 
-    print(signals.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(signals.head(10).to_string(index=False))
     print("\n...\n")
-    print(signals.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(signals.tail(10).to_string(index=False))
     print()
     print(describe_panel(signals, with_dtype=False).to_string())
 

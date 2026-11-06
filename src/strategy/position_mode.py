@@ -18,7 +18,7 @@ def resolve_position_ids(position_ids: str | Sequence[str]) -> list[str]:
         ids = [str(item) for item in position_ids]
 
     if not ids:
-        raise ValueError("POSITION_RUN must contain at least one position_mode.")
+        raise ValueError("SPO_POSITION_RUN must contain at least one position_mode.")
 
     unknown = [mode for mode in ids if mode not in SUPPORTED_POSITION_MODES]
     if unknown:

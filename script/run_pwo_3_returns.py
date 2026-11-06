@@ -41,9 +41,9 @@ def main() -> None:
         weights=None,
     )
 
-    print(returns.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(returns.head(10).to_string(index=False))
     print("\n...\n")
-    print(returns.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(returns.tail(10).to_string(index=False))
     print()
     print(describe_panel(returns, with_dtype=False).to_string())
 

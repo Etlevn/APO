@@ -1,5 +1,6 @@
 """Market data load and basic validation."""
 
+from .tickers import resolve_ticker_set
 from .loader import (
     cache_path_for,
     load_etf_panel,
@@ -15,6 +16,7 @@ __all__ = [
     "load_etf_panel",
     "load_etf_panel_cached",
     "read_etf_cache",
+    "resolve_ticker_set",
     "summarize_panel",
     "validate_panel",
     "write_etf_cache",

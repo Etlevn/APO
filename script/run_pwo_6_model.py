@@ -9,7 +9,7 @@ selection, and prints a terminal preview. Does not read or write cache.
 Caching is handled only by main_pwo.py.
 
 Preview scope: only the first PWO_MODEL_RUN model; full weight-candidate set
-unchanged (no POSITION_RUN in PWO). Full multi-model runs belong in main_pwo.py.
+unchanged (no SPO_POSITION_RUN in PWO). Full multi-model runs belong in main_pwo.py.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ def _first_model_id(run: str | list[str]) -> str:
 
 
 def main() -> None:
-    default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
     preview_model = _first_model_id(config.PWO_MODEL_RUN)
     model_cfg = {**load_yaml(config.CONFIG_DIR / "model.yaml"), "run": preview_model}
 
@@ -51,31 +50,33 @@ def main() -> None:
     )
     table = build_pwo_training_table(
         panel,
-        feature_cfg=default_cfg.get("feature", {}),
+        feature_cfg={"specs": config.FEATURE_SPECS},
         walkforward_cfg=config.WALKFORWARD,
-        dataset_cfg=default_cfg.get("dataset", {}),
+        dataset_cfg={"label_metric": config.LABEL_METRIC},
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
         n_weight_candidates=config.PWO_N_WEIGHT_CANDIDATES,
         weight_seed=config.PWO_WEIGHT_SEED,
         include_equal_weight=config.PWO_INCLUDE_EQUAL_WEIGHT,
         dirichlet_alpha=config.PWO_DIRICHLET_ALPHA,
+        feature_columns=config.PWO_FEATURE_COLUMNS,
         show_progress=True,
     )
     selections = run_pwo_walkforward_selection(
         table,
         walkforward_cfg=config.WALKFORWARD,
         model_cfg=model_cfg,
+        feature_columns=config.PWO_FEATURE_COLUMNS,
         show_progress=True,
     )
 
     if selections.empty:
         print("(empty — check WALKFORWARD / training-table coverage)")
         return
-    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
-    if len(selections) > config.PREVIEW_ROWS:
+    print(selections.head(10).to_string(index=False))
+    if len(selections) > 10:
         print("\n...\n")
-        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+        print(selections.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

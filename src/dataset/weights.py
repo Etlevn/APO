@@ -22,12 +22,12 @@ def resolve_weights(
 
     missing = [ticker for ticker in tickers if ticker not in weights]
     if missing:
-        raise KeyError(f"WEIGHTS missing tickers: {missing}")
+        raise KeyError(f"SPO_WEIGHTS missing tickers: {missing}")
     extra = [ticker for ticker in weights if ticker not in tickers]
     if extra:
-        raise KeyError(f"WEIGHTS has unknown tickers not in TICKERS: {extra}")
+        raise KeyError(f"SPO_WEIGHTS has unknown tickers not in TICKERS: {extra}")
 
     total = float(sum(float(weights[ticker]) for ticker in tickers))
     if total <= 0:
-        raise ValueError("WEIGHTS must sum to a positive value.")
+        raise ValueError("SPO_WEIGHTS must sum to a positive value.")
     return {ticker: float(weights[ticker]) / total for ticker in tickers}

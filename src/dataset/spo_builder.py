@@ -6,14 +6,8 @@ import numpy as np
 import pandas as pd
 
 from candidate import PARAM_COLUMNS, build_candidates, iter_candidate_params
-from feature import FEATURE_COLUMNS, build_features
-from strategy import (
-    apply_position_mode,
-    resolve_position_ids,
-    run_mean_reversion,
-    run_momentum,
-    run_trend,
-)
+from feature import build_features, resolve_feature_columns
+from strategy import apply_position_mode, resolve_position_ids, run_candidate
 from util import ProgressBar
 
 from .calendar import build_event_dates, parse_span
@@ -27,18 +21,7 @@ def _run_one_candidate(
     *,
     price_col: str,
 ) -> pd.DataFrame:
-    if strategy_id == "momentum":
-        return run_momentum(panel, lookback=int(params["lookback"]), price_col=price_col)
-    if strategy_id == "trend":
-        return run_trend(panel, ma_window=int(params["ma_window"]), price_col=price_col)
-    if strategy_id == "mean_reversion":
-        return run_mean_reversion(
-            panel,
-            lookback=int(params["lookback"]),
-            entry_z=float(params["entry_z"]),
-            price_col=price_col,
-        )
-    raise ValueError(f"Unsupported strategy_id: {strategy_id!r}")
+    return run_candidate(panel, strategy_id, params, price_col=price_col)
 
 
 def _portfolio_returns(
@@ -50,7 +33,7 @@ def _portfolio_returns(
     frame["weight"] = frame["asset_id"].map(weights)
     if frame["weight"].isna().any():
         bad = sorted(frame.loc[frame["weight"].isna(), "asset_id"].astype(str).unique())
-        raise KeyError(f"signal assets missing from WEIGHTS: {bad}")
+        raise KeyError(f"signal assets missing from SPO_WEIGHTS: {bad}")
     frame["weighted_return"] = frame["strategy_return"].astype(float) * frame["weight"]
     series = frame.groupby("timestamp", sort=True)["weighted_return"].sum().sort_index()
     series.index = pd.to_datetime(series.index)
@@ -62,27 +45,52 @@ def _asof_feature_vector(
     decision_date: pd.Timestamp,
     *,
     weights: dict[str, float],
+    feature_columns: tuple[str, ...],
 ) -> pd.Series | None:
     available = features.loc[features["timestamp"] <= decision_date]
     if available.empty:
         return None
     asof_ts = available["timestamp"].max()
     slice_ = available.loc[
-        available["timestamp"] == asof_ts, ["asset_id", *FEATURE_COLUMNS]
+        available["timestamp"] == asof_ts, ["asset_id", *feature_columns]
     ].copy()
     if slice_.empty:
         return None
     slice_["weight"] = slice_["asset_id"].map(weights)
     if slice_["weight"].isna().any():
         bad = sorted(slice_.loc[slice_["weight"].isna(), "asset_id"].astype(str).unique())
-        raise KeyError(f"feature assets missing from WEIGHTS: {bad}")
+        raise KeyError(f"feature assets missing from SPO_WEIGHTS: {bad}")
     # Renormalize over assets present on this date.
     total = float(slice_["weight"].sum())
     if total <= 0:
         return None
     slice_["weight"] = slice_["weight"] / total
-    weighted = slice_[list(FEATURE_COLUMNS)].multiply(slice_["weight"], axis=0).sum(axis=0)
+    weighted = slice_[list(feature_columns)].multiply(slice_["weight"], axis=0).sum(axis=0)
     return weighted
+
+
+def _prepare_feature_frame(frame: pd.DataFrame, feature_columns: tuple[str, ...]) -> pd.DataFrame:
+    required = {"timestamp", "asset_id", *feature_columns}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"features missing columns: {sorted(missing)}")
+    out = frame.dropna(subset=list(feature_columns)).copy()
+    out["timestamp"] = pd.to_datetime(out["timestamp"])
+    return out
+
+
+def _feature_frame(
+    panel: pd.DataFrame,
+    *,
+    price_col: str,
+    specs: list[dict] | None,
+    features: pd.DataFrame | None,
+    feature_columns: tuple[str, ...],
+) -> pd.DataFrame:
+    """One prepared feature frame. Specs come from config/feature.yaml."""
+    if features is None:
+        features = build_features(panel, price_col=price_col, specs=specs)
+    return _prepare_feature_frame(features, feature_columns)
 
 
 def _feature_for_sample(
@@ -90,9 +98,15 @@ def _feature_for_sample(
     sample_date: pd.Timestamp,
     *,
     weights: dict[str, float],
+    feature_columns: tuple[str, ...],
 ) -> pd.Series | None:
     """As-of sample_date only; drop the sample if warm-up features are incomplete."""
-    return _asof_feature_vector(features, sample_date, weights=weights)
+    return _asof_feature_vector(
+        features,
+        sample_date,
+        weights=weights,
+        feature_columns=feature_columns,
+    )
 
 
 def _forward_label(
@@ -134,6 +148,7 @@ def build_spo_training_table(
     show_progress: bool = False,
     features: pd.DataFrame | None = None,
     strategy_panel: pd.DataFrame | None = None,
+    feature_columns: list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     """
     Construct completed CPO samples.
@@ -150,8 +165,11 @@ def build_spo_training_table(
     - forward portfolio performance label (y) over label_horizon
 
     ``features`` and ``strategy_panel`` are optional already-built frames.
-    When omitted, features are built from ``panel`` and each candidate strategy
-    is run once. Position modes are still applied here.
+    When omitted, features are built from ``panel`` using ``feature_cfg["specs"]``
+    and each candidate strategy is run once. Position modes are still applied here.
+
+    ``feature_columns`` overrides the default market-feature columns written
+    onto each training row and later read by the model.
     """
     dataset_cfg = dataset_cfg or {}
     price_col = price_col or feature_cfg.get("price_col", "adj_close")
@@ -160,22 +178,16 @@ def build_spo_training_table(
         tickers = sorted(panel["asset_id"].astype(str).unique().tolist())
     resolved_weights = resolve_weights(tickers, weights)
     modes = resolve_position_ids(position_modes)
+    columns = resolve_feature_columns(feature_columns)
 
     candidates = build_candidates(candidate_cfg)
-    if features is None:
-        features = build_features(
-            panel,
-            price_col=price_col,
-            windows=feature_cfg.get("windows"),
-        )
-    else:
-        required_features = {"timestamp", "asset_id", *FEATURE_COLUMNS}
-        missing_features = required_features - set(features.columns)
-        if missing_features:
-            raise ValueError(f"features missing columns: {sorted(missing_features)}")
-        features = features.copy()
-    features = features.dropna(subset=list(FEATURE_COLUMNS)).copy()
-    features["timestamp"] = pd.to_datetime(features["timestamp"])
+    prepared_features = _feature_frame(
+        panel,
+        price_col=price_col,
+        specs=feature_cfg.get("specs"),
+        features=features,
+        feature_columns=columns,
+    )
 
     prepared_signals: dict[str, pd.DataFrame] | None = None
     if strategy_panel is not None:
@@ -255,9 +267,10 @@ def build_spo_training_table(
                 for sample_date in event_dates:
                     label_end = sample_date + label_offset
                     feat = _feature_for_sample(
-                        features,
+                        prepared_features,
                         sample_date,
                         weights=resolved_weights,
+                        feature_columns=columns,
                     )
                     if feat is None:
                         if pbar is not None:
@@ -287,7 +300,7 @@ def build_spo_training_table(
                     }
                     for key in PARAM_COLUMNS:
                         row[key] = cand_row[key]
-                    for col in FEATURE_COLUMNS:
+                    for col in columns:
                         row[col] = float(feat[col])
                     rows.append(row)
                     if pbar is not None:
@@ -309,7 +322,7 @@ def build_spo_training_table(
         "strategy_id",
         "candidate_id",
         *PARAM_COLUMNS,
-        *FEATURE_COLUMNS,
+        *columns,
         "label",
         "label_n_days",
     ]

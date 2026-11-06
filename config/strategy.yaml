@@ -1,0 +1,34 @@
+# SPO strategy parameter grids.
+# Which strategies run: config.py → SPO_STRATEGY_RUN
+# Baseline = first value of each parameter list.
+# Market features: config/feature.yaml
+# Estimator hyperparameters: config/model.yaml
+
+momentum:
+  # Follow the sign of the past lookback return.
+  params:
+    lookback: [10, 20, 40, 60, 120]
+
+trend:
+  # Long when price is above its moving average, short when below.
+  params:
+    ma_window: [20, 50, 100, 150, 200]
+
+mean_reversion:
+  # Fade a large z-score deviation from a moving average.
+  params:
+    lookback: [10, 20, 40]
+    entry_z: [0.5, 1.0, 1.5]
+
+ma_crossover:
+  # Long when the fast average is above the slow average, short otherwise.
+  # fast_window must stay below slow_window.
+  params:
+    fast_window: [10, 20, 40]
+    slow_window: [50, 100, 200]
+
+breakout:
+  # Long after a close above the prior N-day high, short after a close below the prior N-day low.
+  # The position stays until the opposite break.
+  params:
+    lookback: [20, 40, 60, 90, 120]

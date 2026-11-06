@@ -7,13 +7,7 @@ import pandas as pd
 
 from dataset.calendar import parse_span
 from dataset.weights import resolve_weights
-from strategy import (
-    apply_position_mode,
-    baseline_strategy_cfg,
-    run_mean_reversion,
-    run_momentum,
-    run_trend,
-)
+from strategy import apply_position_mode, baseline_strategy_cfg, run_candidate
 
 _PERIOD_COLS = [
     "decision_date",
@@ -33,18 +27,7 @@ def _run_one_candidate(
     *,
     price_col: str,
 ) -> pd.DataFrame:
-    if strategy_id == "momentum":
-        return run_momentum(panel, lookback=int(params["lookback"]), price_col=price_col)
-    if strategy_id == "trend":
-        return run_trend(panel, ma_window=int(params["ma_window"]), price_col=price_col)
-    if strategy_id == "mean_reversion":
-        return run_mean_reversion(
-            panel,
-            lookback=int(params["lookback"]),
-            entry_z=float(params["entry_z"]),
-            price_col=price_col,
-        )
-    raise ValueError(f"Unsupported strategy_id: {strategy_id!r}")
+    return run_candidate(panel, strategy_id, params, price_col=price_col)
 
 
 def _portfolio_returns(
@@ -55,7 +38,7 @@ def _portfolio_returns(
     frame["weight"] = frame["asset_id"].map(weights)
     if frame["weight"].isna().any():
         bad = sorted(frame.loc[frame["weight"].isna(), "asset_id"].astype(str).unique())
-        raise KeyError(f"signal assets missing from WEIGHTS: {bad}")
+        raise KeyError(f"signal assets missing from SPO_WEIGHTS: {bad}")
     frame["weighted_return"] = frame["strategy_return"].astype(float) * frame["weight"]
     series = frame.groupby("timestamp", sort=True)["weighted_return"].sum().sort_index()
     series.index = pd.to_datetime(series.index)
@@ -88,7 +71,7 @@ def buy_hold_returns(
         g = group.sort_values("timestamp").copy()
         w = weights.get(str(asset_id))
         if w is None:
-            raise KeyError(f"asset {asset_id!r} missing from WEIGHTS")
+            raise KeyError(f"asset {asset_id!r} missing from SPO_WEIGHTS")
         g["asset_return"] = g[price_col].astype(float).pct_change()
         g["weighted_return"] = g["asset_return"] * float(w)
         pieces.append(g.loc[:, ["timestamp", "weighted_return"]])

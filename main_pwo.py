@@ -31,7 +31,6 @@ from util import load_yaml
 
 
 def main() -> None:
-    default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
     model_yaml = load_yaml(config.CONFIG_DIR / "model.yaml")
     model_cfg = {**model_yaml, "run": config.PWO_MODEL_RUN}
 
@@ -39,21 +38,23 @@ def main() -> None:
         tickers=config.TICKERS,
         start=config.START,
         end=config.END,
+        set_id=config.TICKER_SET,
         cache_dir=config.CACHE_DIR,
         cache_format=config.CACHE_FORMAT,
     )
 
     table = build_pwo_training_table(
         panel,
-        feature_cfg=default_cfg.get("feature", {}),
+        feature_cfg={"specs": config.FEATURE_SPECS},
         walkforward_cfg=config.WALKFORWARD,
-        dataset_cfg=default_cfg.get("dataset", {}),
+        dataset_cfg={"label_metric": config.LABEL_METRIC},
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
         n_weight_candidates=config.PWO_N_WEIGHT_CANDIDATES,
         weight_seed=config.PWO_WEIGHT_SEED,
         include_equal_weight=config.PWO_INCLUDE_EQUAL_WEIGHT,
         dirichlet_alpha=config.PWO_DIRICHLET_ALPHA,
+        feature_columns=config.PWO_FEATURE_COLUMNS,
         show_progress=True,
     )
 
@@ -62,6 +63,7 @@ def main() -> None:
         table,
         walkforward_cfg=config.WALKFORWARD,
         model_cfg=model_cfg,
+        feature_columns=config.PWO_FEATURE_COLUMNS,
         show_progress=True,
     )
     if not ml_selections.empty:
@@ -86,10 +88,10 @@ def main() -> None:
 
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     selections.to_csv(config.PWO_SELECTIONS_CSV, index=False)
-    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
-    if len(selections) > config.PREVIEW_ROWS:
+    print(selections.head(10).to_string(index=False))
+    if len(selections) > 10:
         print("\n...\n")
-        print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+        print(selections.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

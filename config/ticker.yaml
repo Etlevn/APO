@@ -1,0 +1,228 @@
+# Preset ETF universes. Choose one in config.py → TICKER_SET.
+# Names must exist on yfinance. A list Dirichlet alpha must match the chosen set.
+
+sets:
+  # Current basket: US large-cap equity, long Treasuries, and gold.
+  etf_3:
+    - SPY
+    - TLT
+    - GLD
+
+  # Smallest multi-asset set. Keeps the three and adds developed ex-US equity and US aggregate bonds.
+  etf_5:
+    - SPY
+    - TLT
+    - GLD
+    - EFA
+    - AGG
+
+  # Main research universe: equity, Treasuries, credit, real estate, gold, and commodities.
+  etf_10:
+    - SPY
+    - TLT
+    - GLD
+    - EFA
+    - AGG
+    - IWM
+    - EEM
+    - VNQ
+    - HYG
+    - DBC
+
+  # Between the 10-asset research set and the broader regime set. Adds a few US styles, three markets, bond sleeves, silver, and the dollar.
+  etf_25:
+    # Core multi-asset universe
+    - SPY
+    - TLT
+    - GLD
+    - EFA
+    - AGG
+    - IWM
+    - EEM
+    - VNQ
+    - HYG
+    - DBC
+    # US equity styles and factors
+    - QQQ
+    - MDY
+    - VTV
+    - USMV
+    - QUAL
+    # International markets
+    - EWJ
+    - INDA
+    - FXI
+    # Bond duration, inflation, and credit
+    - SHY
+    - IEF
+    - TIP
+    - LQD
+    - EMB
+    # Additional diversifiers
+    - SLV
+    - UUP
+
+  # Broader regime set. US style and sectors, countries, bond sleeves, silver, and the dollar. Holdings overlap.
+  etf_50:
+    - SPY
+    - TLT
+    - GLD
+    - EFA
+    - AGG
+    - IWM
+    - EEM
+    - VNQ
+    - HYG
+    - DBC
+    # US size, style, and factors
+    - QQQ
+    - MDY
+    - RSP
+    - VTV
+    - VUG
+    - USMV
+    - MTUM
+    - QUAL
+    # US sectors
+    - XLE
+    - XLF
+    - XLK
+    - XLV
+    - XLI
+    - XLP
+    - XLU
+    - XLY
+    - XLB
+    # Countries
+    - EWJ
+    - EWU
+    - EWG
+    - EWQ
+    - EWC
+    - EWA
+    - EWH
+    - EWY
+    - INDA
+    - FXI
+    - EWT
+    - EWW
+    # Bond maturity and credit
+    - SHY
+    - IEF
+    - TIP
+    - LQD
+    - EMB
+    - MUB
+    - BSV
+    - BNDX
+    - MBB
+    # Silver and the dollar
+    - SLV
+    - UUP
+
+  # High-dimensional stress test on etf_50. Expect overlap, liquidity gaps, and commodity-futures roll.
+  etf_100:
+    - SPY
+    - TLT
+    - GLD
+    - EFA
+    - AGG
+    - IWM
+    - EEM
+    - VNQ
+    - HYG
+    - DBC
+    - QQQ
+    - MDY
+    - RSP
+    - VTV
+    - VUG
+    - USMV
+    - MTUM
+    - QUAL
+    - XLE
+    - XLF
+    - XLK
+    - XLV
+    - XLI
+    - XLP
+    - XLU
+    - XLY
+    - XLB
+    - EWJ
+    - EWU
+    - EWG
+    - EWQ
+    - EWC
+    - EWA
+    - EWH
+    - EWY
+    - INDA
+    - FXI
+    - EWT
+    - EWW
+    - SHY
+    - IEF
+    - TIP
+    - LQD
+    - EMB
+    - MUB
+    - BSV
+    - BNDX
+    - MBB
+    - SLV
+    - UUP
+    # Extra US size, style, and industries
+    - IJH
+    - IJR
+    - IWD
+    - IWF
+    - IWN
+    - IWO
+    - DVY
+    - SPLV
+    - XBI
+    - XHB
+    - XRT
+    - XOP
+    - KRE
+    - SMH
+    - ITA
+    # Extra regions and countries
+    - VGK
+    - VPL
+    - EWZ
+    - ECH
+    - EPU
+    - EZA
+    - TUR
+    - EIDO
+    - THD
+    - EWM
+    - EPHE
+    - VNM
+    - EIS
+    - EWS
+    - EPOL
+    # Extra fixed income
+    - VGSH
+    - VGIT
+    - VGLT
+    - VCIT
+    - VCSH
+    - BKLN
+    - PCY
+    - PFF
+    - MINT
+    - FLOT
+    - BWX
+    - WIP
+    # Extra real assets and currencies
+    - GDX
+    - GDXJ
+    - USO
+    - UNG
+    - DBA
+    - DBB
+    - FXE
+    - FXY

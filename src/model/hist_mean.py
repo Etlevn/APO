@@ -13,6 +13,7 @@ from util import ProgressBar
 from .walkforward import (
     _pwo_decision_dates,
     _pwo_train_mask,
+    _spo_param_fields,
     _spo_selection_calendar,
     _spo_train_mask,
     _weight_columns,
@@ -76,9 +77,7 @@ def _select_spo_hist_mean_for_decision(
         "position_mode": str(position_mode),
         "strategy_id": strategy_id,
         "candidate_id": best["candidate_id"],
-        "lookback": best["lookback"],
-        "ma_window": best["ma_window"],
-        "entry_z": best["entry_z"],
+        **_spo_param_fields(best),
         "predicted_label": float(best["_hist_mean"]),
         "realized_label": float(best["label"]),
         "train_rows": int(len(train)),

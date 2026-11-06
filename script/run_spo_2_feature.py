@@ -23,12 +23,9 @@ if str(SRC) not in sys.path:
 import config
 from data import describe_panel, load_etf_panel
 from feature import FeaturePipeline, build_features
-from util import load_yaml
 
 
 def main() -> None:
-    feature_cfg = load_yaml(config.CONFIG_DIR / "default.yaml").get("feature", {})
-
     panel = load_etf_panel(
         tickers=config.TICKERS,
         start=config.START,
@@ -37,17 +34,16 @@ def main() -> None:
     features = build_features(
         panel,
         price_col=config.PRICE_COL,
-        windows=feature_cfg.get("windows"),
+        specs=config.FEATURE_SPECS,
     )
 
-    if feature_cfg.get("standardize", True):
-        # Preview-only: fit on all non-null rows. Walk-forward must fit train-only.
-        usable = features.dropna()
-        features = FeaturePipeline().fit_transform(usable)
+    # Preview-only: fit on all non-null rows. Walk-forward must fit train-only.
+    usable = features.dropna()
+    features = FeaturePipeline(config.SPO_FEATURE_COLUMNS).fit_transform(usable)
 
-    print(features.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(features.head(10).to_string(index=False))
     print("\n...\n")
-    print(features.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(features.tail(10).to_string(index=False))
     print()
     print(describe_panel(features, with_dtype=False).to_string())
 

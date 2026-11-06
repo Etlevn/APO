@@ -115,7 +115,7 @@ def run_evaluation(
 
     Pass ``selections`` to use an in-memory table. Otherwise pass
     ``selections_path``. Always includes cpo/baseline singles + blends, and market.
-    Display filters belong in the standalone ``plot_spo.py`` entry, not here.
+    Display filters belong in ``eval_spo.py``, not here.
     """
     if selections is not None:
         raw = _prepare_selections(selections)
@@ -135,9 +135,9 @@ def run_evaluation(
     }
     missing = [sid for sid in strategies if sid not in candidate_cfg]
     if missing:
-        raise KeyError(f"strategies in selections missing from CANDIDATE: {missing}")
+        raise KeyError(f"strategies in selections missing from SPO_CANDIDATE: {missing}")
     if not active_candidate_cfg:
-        raise ValueError("No overlapping strategies between selections and CANDIDATE grids.")
+        raise ValueError("No overlapping strategies between selections and SPO_CANDIDATE grids.")
 
     ppy = _periods_per_year(walkforward_cfg["label_horizon"])
 

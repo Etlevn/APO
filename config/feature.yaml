@@ -1,0 +1,28 @@
+# Point-in-time market features shared by SPO and PWO.
+# The key is the output column. Order here is the column order.
+# fn names a calculation in src/feature/builder.py.
+# window is the lookback in trading days.
+#
+# pct_change  — price.pct_change(window)
+# rolling_std — rolling standard deviation of one-day returns
+# ma_gap      — price / rolling mean(price) - 1
+
+ret_1:
+  fn: pct_change
+  window: 1
+
+ret_5:
+  fn: pct_change
+  window: 5
+
+ret_21:
+  fn: pct_change
+  window: 21
+
+vol_21:
+  fn: rolling_std
+  window: 21
+
+ma_gap_21:
+  fn: ma_gap
+  window: 21

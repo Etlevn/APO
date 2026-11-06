@@ -8,8 +8,8 @@ Fetches from yfinance, builds the CPO training table, runs walk-forward
 selection, and prints a terminal preview. Does not read or write cache.
 Caching is handled only by main_spo.py.
 
-Preview scope: first POSITION_RUN mode and first MODEL_RUN model;
-STRATEGY_RUN and full CANDIDATE grids unchanged. Full runs belong in main_spo.py.
+Preview scope: first SPO_POSITION_RUN mode and first SPO_MODEL_RUN model;
+SPO_STRATEGY_RUN and full SPO_CANDIDATE grids unchanged. Full runs belong in main_spo.py.
 """
 
 from __future__ import annotations
@@ -33,12 +33,11 @@ from util import load_yaml
 
 
 def main() -> None:
-    default_cfg = load_yaml(config.CONFIG_DIR / "default.yaml")
     model_yaml = load_yaml(config.CONFIG_DIR / "model.yaml")
-    preview_model = resolve_model_ids({**model_yaml, "run": config.MODEL_RUN})[0]
+    preview_model = resolve_model_ids({**model_yaml, "run": config.SPO_MODEL_RUN})[0]
     model_cfg = {**model_yaml, "run": preview_model}
-    candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
-    preview_position = resolve_position_ids(config.POSITION_RUN)[0]
+    candidate_cfg = select_candidate_cfg(config.SPO_CANDIDATE, config.SPO_STRATEGY_RUN)
+    preview_position = resolve_position_ids(config.SPO_POSITION_RUN)[0]
 
     panel = load_etf_panel(
         tickers=config.TICKERS,
@@ -48,26 +47,28 @@ def main() -> None:
     table = build_spo_training_table(
         panel,
         candidate_cfg=candidate_cfg,
-        feature_cfg=default_cfg.get("feature", {}),
+        feature_cfg={"specs": config.FEATURE_SPECS},
         walkforward_cfg=config.WALKFORWARD,
-        dataset_cfg=default_cfg.get("dataset", {}),
+        dataset_cfg={"label_metric": config.LABEL_METRIC},
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
-        weights=config.WEIGHTS,
+        weights=config.SPO_WEIGHTS,
         position_modes=preview_position,
-        overlay_scale=config.POSITION_OVERLAY_SCALE,
+        overlay_scale=config.SPO_POSITION_OVERLAY_SCALE,
+        feature_columns=config.SPO_FEATURE_COLUMNS,
         show_progress=True,
     )
     selections = run_spo_walkforward_selection(
         table,
         walkforward_cfg=config.WALKFORWARD,
         model_cfg=model_cfg,
+        feature_columns=config.SPO_FEATURE_COLUMNS,
         show_progress=True,
     )
 
-    print(selections.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(selections.head(10).to_string(index=False))
     print("\n...\n")
-    print(selections.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(selections.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

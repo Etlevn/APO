@@ -5,7 +5,7 @@ Usage (from project root):
     python eval_pwo.py
 
 Writes ``SUMMARY_CSV`` / ``PERIODS_CSV`` (and optional ``DIAGNOSIS_CSV``).
-When ``RUN_PLOT`` is True, also writes an equity PNG (same style as plot_spo).
+When ``RUN_PLOT`` is True, also writes an equity PNG.
 """
 
 from __future__ import annotations
@@ -55,6 +55,13 @@ from evaluate import (
     save_pwo_equity_plot,
 )
 
+def _print_table(frame: pd.DataFrame) -> None:
+    print(frame.head(10).to_string(index=False))
+    if len(frame) > 10:
+        print("\n...\n")
+        print(frame.tail(10).to_string(index=False))
+
+
 _SLEEVE_ABBR = {"cpo": "c", "baseline": "b", "market": "m"}
 _MODEL_ABBR = {"hgb": "h", "ridge": "ri", "rf": "rf", "hist_mean": "hm"}
 
@@ -102,8 +109,7 @@ def _maybe_write_diagnosis(selections_path: Path) -> None:
 
     diagnosis.to_csv(DIAGNOSIS_CSV, index=False)
     print("\n=== ML vs hist_mean diagnosis ===\n")
-    print(diagnosis.to_string(index=False))
-    print(f"\nwrote {DIAGNOSIS_CSV}  rows={len(diagnosis)}")
+    _print_table(diagnosis)
 
 
 def _maybe_write_plot(periods: pd.DataFrame) -> None:
@@ -118,7 +124,6 @@ def _maybe_write_plot(periods: pd.DataFrame) -> None:
         date_start=DATE_START,
         date_end=DATE_END,
     )
-    print(f"wrote {out_path}")
 
 
 def main() -> None:
@@ -126,6 +131,7 @@ def main() -> None:
         tickers=config.TICKERS,
         start=config.START,
         end=config.END,
+        set_id=config.TICKER_SET,
         cache_dir=config.CACHE_DIR,
         cache_format=config.CACHE_FORMAT,
     )
@@ -135,14 +141,14 @@ def main() -> None:
         walkforward_cfg=config.WALKFORWARD,
         price_col=config.PRICE_COL,
         tickers=config.TICKERS,
-        weights=config.WEIGHTS,
+        weights=config.SPO_WEIGHTS,
     )
 
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     summary.to_csv(SUMMARY_CSV, index=False)
     periods.to_csv(PERIODS_CSV, index=False)
 
-    print(summary.to_string(index=False))
+    _print_table(summary)
 
     _maybe_write_diagnosis(Path(SELECTIONS_PATH))
     _maybe_write_plot(periods)

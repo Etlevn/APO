@@ -33,9 +33,9 @@ def main() -> None:
         dirichlet_alpha=config.PWO_DIRICHLET_ALPHA,
     )
 
-    print(candidates.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(candidates.head(10).to_string(index=False))
     print("\n...\n")
-    print(candidates.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(candidates.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

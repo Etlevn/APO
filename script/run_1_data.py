@@ -31,9 +31,9 @@ def main() -> None:
         end=config.END,
     )
 
-    print(panel.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(panel.head(10).to_string(index=False))
     print("\n...\n")
-    print(panel.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(panel.tail(10).to_string(index=False))
     print()
     print(describe_panel(panel).to_string())
 

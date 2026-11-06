@@ -12,7 +12,7 @@ from sklearn.preprocessing import StandardScaler
 
 from candidate import PARAM_COLUMNS
 from dataset.calendar import parse_span
-from feature import FEATURE_COLUMNS
+from feature import resolve_feature_columns
 from util import ProgressBar
 
 from .registry import create_model, resolve_model_ids
@@ -58,13 +58,12 @@ def _weight_columns(table: pd.DataFrame) -> list[str]:
 # SPO
 # ---------------------------------------------------------------------------
 
-SPO_INPUT_COLUMNS = (*FEATURE_COLUMNS, *PARAM_COLUMNS)
-# Backward-compatible alias
-INPUT_COLUMNS = SPO_INPUT_COLUMNS
-
-
-def _spo_design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
-    matrix = frame.loc[:, list(SPO_INPUT_COLUMNS)].copy()
+def _spo_design_matrix(frame: pd.DataFrame, feature_columns: tuple[str, ...]) -> pd.DataFrame:
+    cols = [*feature_columns, *PARAM_COLUMNS]
+    missing = [col for col in cols if col not in frame.columns]
+    if missing:
+        raise ValueError(f"training table missing model columns: {missing}")
+    matrix = frame.loc[:, cols].copy()
     for col in PARAM_COLUMNS:
         matrix[col] = pd.to_numeric(matrix[col], errors="coerce")
     return matrix.fillna(0.0)
@@ -107,6 +106,7 @@ def _select_spo_for_decision(
     position_mode: str,
     decision: pd.Timestamp,
     walkforward_cfg: dict,
+    feature_columns: tuple[str, ...],
 ) -> dict[str, object] | None:
     train = table.loc[
         _spo_train_mask(
@@ -134,7 +134,7 @@ def _select_spo_for_decision(
         today,
         model_id=model_id,
         model_cfg=model_cfg,
-        design_fn=_spo_design_matrix,
+        design_fn=lambda frame: _spo_design_matrix(frame, feature_columns),
     )
     if fitted is None:
         return None
@@ -145,13 +145,20 @@ def _select_spo_for_decision(
         "position_mode": str(position_mode),
         "strategy_id": strategy_id,
         "candidate_id": best["candidate_id"],
-        "lookback": best["lookback"],
-        "ma_window": best["ma_window"],
-        "entry_z": best["entry_z"],
+        **_spo_param_fields(best),
         "predicted_label": predicted,
         "realized_label": float(best["label"]),
         "train_rows": int(len(train)),
     }
+
+
+def _spo_param_fields(best: pd.Series) -> dict[str, object]:
+    """Selected parameter values. Unused parameters stay missing."""
+    fields: dict[str, object] = {}
+    for key in PARAM_COLUMNS:
+        value = best[key] if key in best.index else None
+        fields[key] = None if pd.isna(value) else value
+    return fields
 
 
 def _spo_selection_calendar(
@@ -180,6 +187,7 @@ def run_spo_walkforward_selection(
     walkforward_cfg: dict,
     model_cfg: dict,
     model_ids: str | list[str] | None = None,
+    feature_columns: list[str] | tuple[str, ...] | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
     """
@@ -188,6 +196,7 @@ def run_spo_walkforward_selection(
 
     ``model_ids`` may be one id (``\"hgb\"``) or several (``[\"hgb\", \"ridge\"]``).
     If omitted, uses ``model_cfg[\"run\"]`` (see ``resolve_model_ids``).
+    ``feature_columns`` overrides the default market-feature inputs.
     """
     if table.empty:
         return pd.DataFrame()
@@ -197,6 +206,7 @@ def run_spo_walkforward_selection(
         table["position_mode"] = "long_short"
 
     ids = resolve_model_ids(model_cfg, model_ids)
+    columns = resolve_feature_columns(feature_columns)
     decisions, strategies, position_modes = _spo_selection_calendar(table, walkforward_cfg)
 
     jobs = [
@@ -224,6 +234,7 @@ def run_spo_walkforward_selection(
                 position_mode=position_mode,
                 decision=decision,
                 walkforward_cfg=walkforward_cfg,
+                feature_columns=columns,
             )
             if selected is not None:
                 rows.append(selected)
@@ -279,9 +290,12 @@ def _pwo_decision_dates(table: pd.DataFrame, walkforward_cfg: dict) -> list[pd.T
     return sorted(pd.to_datetime(decision_frame["decision_date"]).unique())
 
 
-def _pwo_design_matrix(frame: pd.DataFrame) -> pd.DataFrame:
+def _pwo_design_matrix(frame: pd.DataFrame, feature_columns: tuple[str, ...]) -> pd.DataFrame:
     w_cols = _weight_columns(frame)
-    cols = [*FEATURE_COLUMNS, *w_cols]
+    cols = [*feature_columns, *w_cols]
+    missing = [col for col in feature_columns if col not in frame.columns]
+    if missing:
+        raise ValueError(f"training table missing model columns: {missing}")
     matrix = frame.loc[:, cols].copy()
     for col in w_cols:
         matrix[col] = pd.to_numeric(matrix[col], errors="coerce")
@@ -295,6 +309,7 @@ def _select_pwo_for_decision(
     model_cfg: dict,
     decision: pd.Timestamp,
     walkforward_cfg: dict,
+    feature_columns: tuple[str, ...],
 ) -> dict[str, object] | None:
     train = table.loc[
         _pwo_train_mask(table, decision=decision, walkforward_cfg=walkforward_cfg)
@@ -314,7 +329,7 @@ def _select_pwo_for_decision(
         today,
         model_id=model_id,
         model_cfg=model_cfg,
-        design_fn=_pwo_design_matrix,
+        design_fn=lambda frame: _pwo_design_matrix(frame, feature_columns),
     )
     if fitted is None:
         return None
@@ -340,6 +355,7 @@ def run_pwo_walkforward_selection(
     walkforward_cfg: dict,
     model_cfg: dict,
     model_ids: str | list[str] | None = None,
+    feature_columns: list[str] | tuple[str, ...] | None = None,
     show_progress: bool = False,
 ) -> pd.DataFrame:
     """
@@ -347,11 +363,13 @@ def run_pwo_walkforward_selection(
     candidate by predicted forward portfolio label.
 
     Output schema matches ``run_pwo_hist_mean_selection`` (plus ML ``model_id``).
+    ``feature_columns`` overrides the default market-feature inputs.
     """
     if table.empty:
         return pd.DataFrame()
 
     ids = resolve_model_ids(model_cfg, model_ids)
+    columns = resolve_feature_columns(feature_columns)
     decisions = _pwo_decision_dates(table, walkforward_cfg)
     jobs = [(model_id, decision) for model_id in ids for decision in decisions]
     rows: list[dict[str, object]] = []
@@ -367,6 +385,7 @@ def run_pwo_walkforward_selection(
                 model_cfg=model_cfg,
                 decision=decision,
                 walkforward_cfg=walkforward_cfg,
+                feature_columns=columns,
             )
             if selected is not None:
                 rows.append(selected)

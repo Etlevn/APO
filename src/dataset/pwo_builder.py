@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from candidate import build_weight_candidates, iter_weight_vectors, weight_column
-from feature import FEATURE_COLUMNS, build_features
+from feature import build_features, resolve_feature_columns
 from portfolio import build_asset_returns, portfolio_returns
 from util import ProgressBar
 
@@ -19,6 +19,7 @@ def _asof_feature_vector(
     decision_date: pd.Timestamp,
     *,
     feature_weights: dict[str, float],
+    feature_columns: tuple[str, ...],
 ) -> pd.Series | None:
     """Equal/fixed-weight cross-section of per-asset features as-of decision_date."""
     available = features.loc[features["timestamp"] <= decision_date]
@@ -26,11 +27,11 @@ def _asof_feature_vector(
         return None
     asof_ts = available["timestamp"].max()
     slice_ = available.loc[
-        available["timestamp"] == asof_ts, ["asset_id", *FEATURE_COLUMNS]
+        available["timestamp"] == asof_ts, ["asset_id", *feature_columns]
     ].copy()
     if slice_.empty:
         return None
-    if slice_[list(FEATURE_COLUMNS)].isna().any(axis=None):
+    if slice_[list(feature_columns)].isna().any(axis=None):
         return None
     slice_["weight"] = slice_["asset_id"].map(feature_weights)
     if slice_["weight"].isna().any():
@@ -40,7 +41,7 @@ def _asof_feature_vector(
     if total <= 0:
         return None
     slice_["weight"] = slice_["weight"] / total
-    return slice_[list(FEATURE_COLUMNS)].multiply(slice_["weight"], axis=0).sum(axis=0)
+    return slice_[list(feature_columns)].multiply(slice_["weight"], axis=0).sum(axis=0)
 
 
 def _forward_label(
@@ -79,6 +80,7 @@ def build_pwo_training_table(
     show_progress: bool = False,
     features: pd.DataFrame | None = None,
     weight_candidates: pd.DataFrame | None = None,
+    feature_columns: list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     """
     Construct PWO samples: (E_t, w, y) with asset-layer buy-and-hold labels.
@@ -92,10 +94,14 @@ def build_pwo_training_table(
     ``features`` and ``weight_candidates`` are optional already-built frames.
     When omitted, features are built from ``panel`` and weight candidates are
     sampled here. Asset returns and forward labels are still computed here.
+
+    ``feature_columns`` overrides the default market-feature columns written
+    onto each training row and later read by the model.
     """
     dataset_cfg = dataset_cfg or {}
     price_col = price_col or feature_cfg.get("price_col", "adj_close")
     label_metric = dataset_cfg.get("label_metric", "cumulative_return")
+    columns = resolve_feature_columns(feature_columns)
     if tickers is None:
         tickers = sorted(panel["asset_id"].astype(str).unique().tolist())
     tickers = [str(t) for t in tickers]
@@ -126,15 +132,14 @@ def build_pwo_training_table(
         features = build_features(
             panel,
             price_col=price_col,
-            windows=feature_cfg.get("windows"),
+            specs=feature_cfg.get("specs"),
         )
     else:
-        required_features = {"timestamp", "asset_id", *FEATURE_COLUMNS}
-        missing_features = required_features - set(features.columns)
-        if missing_features:
-            raise ValueError(f"features missing columns: {sorted(missing_features)}")
         features = features.copy()
-    features = features.dropna(subset=list(FEATURE_COLUMNS)).copy()
+    missing_features = {"timestamp", "asset_id", *columns} - set(features.columns)
+    if missing_features:
+        raise ValueError(f"features missing columns: {sorted(missing_features)}")
+    features = features.dropna(subset=list(columns)).copy()
     features["timestamp"] = pd.to_datetime(features["timestamp"])
 
     asset_ret = build_asset_returns(panel, price_col=price_col)
@@ -166,6 +171,7 @@ def build_pwo_training_table(
             features,
             sample_date,
             feature_weights=feature_weights,
+            feature_columns=columns,
         )
 
     n_candidates = len(weight_items)
@@ -208,7 +214,7 @@ def build_pwo_training_table(
                 }
                 for col in w_cols:
                     row[col] = float(cand_row[col])
-                for col in FEATURE_COLUMNS:
+                for col in columns:
                     row[col] = float(feat[col])
                 rows.append(row)
                 if pbar is not None:
@@ -229,7 +235,7 @@ def build_pwo_training_table(
         "candidate_id",
         "is_equal_weight",
         *w_cols,
-        *FEATURE_COLUMNS,
+        *columns,
         "label",
         "label_n_days",
     ]

@@ -4,7 +4,7 @@ SPO preview entry for the candidate module.
 Usage (from project root):
     python script/run_spo_4_candidate.py
 
-Builds the SPO parameter grid from config.CANDIDATE and prints a terminal preview.
+Builds the SPO parameter grid from config.SPO_CANDIDATE and prints a terminal preview.
 Does not fetch market data or use cache.
 """
 
@@ -26,12 +26,12 @@ from strategy import select_candidate_cfg
 
 
 def main() -> None:
-    candidate_cfg = select_candidate_cfg(config.CANDIDATE, config.STRATEGY_RUN)
+    candidate_cfg = select_candidate_cfg(config.SPO_CANDIDATE, config.SPO_STRATEGY_RUN)
     candidates = build_candidates(candidate_cfg)
 
-    print(candidates.head(config.PREVIEW_ROWS).to_string(index=False))
+    print(candidates.head(10).to_string(index=False))
     print("\n...\n")
-    print(candidates.tail(config.PREVIEW_ROWS).to_string(index=False))
+    print(candidates.tail(10).to_string(index=False))
 
 
 if __name__ == "__main__":

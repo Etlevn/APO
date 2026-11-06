@@ -7,7 +7,8 @@ from collections.abc import Iterator
 
 import pandas as pd
 
-PARAM_COLUMNS = ("lookback", "ma_window", "entry_z")
+PARAM_COLUMNS = ("lookback", "ma_window", "entry_z", "fast_window", "slow_window")
+INT_PARAM_COLUMNS = ("lookback", "ma_window", "fast_window", "slow_window")
 
 
 def _as_list(value: object) -> list[object]:
@@ -38,7 +39,7 @@ def build_candidates(candidate_cfg: dict) -> pd.DataFrame:
     Expand configured grids into a candidate table.
 
     Columns:
-    strategy_id, candidate_id, lookback, ma_window, entry_z
+    strategy_id, candidate_id, and PARAM_COLUMNS.
     Unused parameters for a strategy are left as missing values.
     """
     if not candidate_cfg:
@@ -63,7 +64,7 @@ def build_candidates(candidate_cfg: dict) -> pd.DataFrame:
     ]
     ordered = ["strategy_id", "candidate_id", *PARAM_COLUMNS]
     frame = frame.loc[:, ordered]
-    for col in ("lookback", "ma_window"):
+    for col in INT_PARAM_COLUMNS:
         frame[col] = pd.to_numeric(frame[col], errors="coerce").astype("Int64")
     frame["entry_z"] = pd.to_numeric(frame["entry_z"], errors="coerce")
     return frame.reset_index(drop=True)
@@ -79,7 +80,7 @@ def iter_candidate_params(candidates: pd.DataFrame) -> Iterator[tuple[str, str, 
             value = row[key]
             if value is None or (isinstance(value, float) and pd.isna(value)):
                 continue
-            if key in {"lookback", "ma_window"}:
+            if key in INT_PARAM_COLUMNS:
                 params[key] = int(value)
             else:
                 params[key] = float(value)
