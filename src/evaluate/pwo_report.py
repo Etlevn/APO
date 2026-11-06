@@ -17,11 +17,21 @@ _PWO_PERIOD_COLS = [
     "decision_date",
     "label_end",
     "model_id",
-    "position_mode",
-    "strategy_id",
     "sleeve",
     "period_return",
 ]
+
+
+def _prepare_pwo_selections(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        raise ValueError("selections are empty.")
+    required = {"decision_date", "model_id", "realized_label"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"PWO selections missing columns: {sorted(missing)}")
+    out = frame.copy()
+    out["decision_date"] = pd.to_datetime(out["decision_date"]).dt.normalize()
+    return out
 
 
 def load_pwo_selections(path: str | Path) -> pd.DataFrame:
@@ -31,12 +41,7 @@ def load_pwo_selections(path: str | Path) -> pd.DataFrame:
     frame = pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"selections file is empty: {path}")
-    required = {"decision_date", "model_id", "realized_label"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"PWO selections missing columns: {sorted(missing)}")
-    frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.normalize()
-    return frame
+    return _prepare_pwo_selections(frame)
 
 
 def _attach_label_end(
@@ -60,8 +65,6 @@ def _pwo_cpo_period_returns(selections: pd.DataFrame) -> pd.DataFrame:
             "decision_date": pd.to_datetime(selections["decision_date"]).dt.normalize(),
             "label_end": pd.to_datetime(selections["label_end"]).dt.normalize(),
             "model_id": selections["model_id"].astype(str),
-            "position_mode": "",
-            "strategy_id": "",
             "sleeve": "cpo",
             "period_return": selections["realized_label"].astype(float),
         }
@@ -77,9 +80,9 @@ def _summary_rows(
     rows: list[dict[str, object]] = []
     if periods.empty:
         return rows
-    group_cols = ["sleeve", "model_id", "position_mode", "strategy_id"]
+    group_cols = ["sleeve", "model_id"]
     for keys, group in periods.groupby(group_cols, sort=True):
-        sleeve, model_id, position_mode, strategy_id = keys
+        sleeve, model_id = keys
         metrics = summarize_period_returns(
             group.sort_values("decision_date")["period_return"],
             periods_per_year=periods_per_year,
@@ -88,8 +91,6 @@ def _summary_rows(
             {
                 "sleeve": sleeve,
                 "model_id": model_id if model_id else "",
-                "position_mode": position_mode if position_mode else "",
-                "strategy_id": strategy_id if strategy_id else "",
                 **metrics,
             }
         )
@@ -99,7 +100,8 @@ def _summary_rows(
 def run_pwo_evaluation(
     panel: pd.DataFrame,
     *,
-    selections_path: str | Path,
+    selections_path: str | Path | None = None,
+    selections: pd.DataFrame | None = None,
     walkforward_cfg: dict,
     price_col: str,
     tickers: list[str],
@@ -108,12 +110,20 @@ def run_pwo_evaluation(
     """
     Return ``(summary, periods)`` for PWO selections.
 
+    Pass ``selections`` to use an in-memory table. Otherwise pass
+    ``selections_path``.
+
     Sleeves (same names as SPO for plot parity):
     - ``cpo``: model-selected weights (``realized_label``)
     - ``baseline``: equal-weight buy-and-hold over the same hold windows
     - ``market``: buy-and-hold under ``weights`` (``None`` → equal weight)
     """
-    raw = load_pwo_selections(selections_path)
+    if selections is not None:
+        raw = _prepare_pwo_selections(selections)
+    elif selections_path is not None:
+        raw = load_pwo_selections(selections_path)
+    else:
+        raise ValueError("run_pwo_evaluation requires selections or selections_path.")
     filtered = _attach_label_end(raw, walkforward_cfg)
     decisions = sorted(filtered["decision_date"].unique())
     ppy = _periods_per_year(walkforward_cfg["label_horizon"])
@@ -131,6 +141,7 @@ def run_pwo_evaluation(
     if not baseline.empty:
         baseline = baseline.copy()
         baseline["sleeve"] = "baseline"
+    baseline = baseline.drop(columns=["position_mode", "strategy_id"], errors="ignore")
 
     market = market_period_returns(
         panel,
@@ -140,14 +151,13 @@ def run_pwo_evaluation(
         tickers=tickers,
         weights=weights,
     )
+    market = market.drop(columns=["position_mode", "strategy_id"], errors="ignore")
 
     periods = pd.concat([cpo, baseline, market], ignore_index=True)
     periods = periods.sort_values(
-        ["sleeve", "model_id", "position_mode", "strategy_id", "decision_date"]
+        ["sleeve", "model_id", "decision_date"]
     ).reset_index(drop=True)
 
     summary = pd.DataFrame(_summary_rows(periods, periods_per_year=ppy))
-    summary = summary.sort_values(
-        ["sleeve", "model_id", "position_mode", "strategy_id"]
-    ).reset_index(drop=True)
+    summary = summary.sort_values(["sleeve", "model_id"]).reset_index(drop=True)
     return summary, periods

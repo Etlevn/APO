@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-from dataset.weights import resolve_weights
-
 
 def build_asset_returns(
     panel: pd.DataFrame,
@@ -74,6 +72,10 @@ def build_weighted_return_panel(
     Columns: timestamp, asset_id, asset_return, weight, contrib
     ``weights=None`` → equal weight over ``tickers`` (or assets present in panel).
     """
+    # Imported here: dataset.pwo_builder imports portfolio, so a module-level
+    # import of dataset would cycle while portfolio is still initializing.
+    from dataset.weights import resolve_weights
+
     asset_ret = build_asset_returns(panel, price_col=price_col)
     if tickers is None:
         tickers = sorted(asset_ret["asset_id"].astype(str).unique().tolist())

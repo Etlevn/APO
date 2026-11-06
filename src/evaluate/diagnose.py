@@ -110,6 +110,8 @@ def run_ml_vs_hist_mean_diagnosis(
     - ``n_disagree`` / ``agree_rate``: how often picks differ vs match
     - ``mean_realized_diff``, ``ml_win_rate``: only on disagree dates
       (``mean_realized_diff`` = mean(ML realized − HM realized))
+
+    Returns an empty frame when ``baseline_model_id`` is not in the selections.
     """
     if isinstance(selections, (str, Path)):
         frame = load_selections(selections)
@@ -120,10 +122,7 @@ def run_ml_vs_hist_mean_diagnosis(
             frame["position_mode"] = "long_short"
 
     if baseline_model_id not in set(frame["model_id"].astype(str)):
-        raise ValueError(
-            f"baseline model {baseline_model_id!r} not found in selections; "
-            f"available={sorted(frame['model_id'].astype(str).unique())}"
-        )
+        return pd.DataFrame()
 
     models = _as_id_list(model_ids)
     if models is None:

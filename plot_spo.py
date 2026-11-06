@@ -13,6 +13,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 if str(ROOT) not in sys.path:

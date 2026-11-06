@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -66,12 +63,16 @@ def _filter_plot_rows(
 ) -> pd.DataFrame:
     frame = periods.copy()
     frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.normalize()
-    frame["strategy_id"] = frame["strategy_id"].fillna("").astype(str)
     frame["model_id"] = frame["model_id"].fillna("").astype(str)
+    # PWO periods omit these. Empty values stay out of the legend.
     if "position_mode" not in frame.columns:
         frame["position_mode"] = ""
     else:
         frame["position_mode"] = frame["position_mode"].fillna("").astype(str)
+    if "strategy_id" not in frame.columns:
+        frame["strategy_id"] = ""
+    else:
+        frame["strategy_id"] = frame["strategy_id"].fillna("").astype(str)
 
     # Apply in conceptual order: sleeve → position → strategy → model → date.
     if sleeve_ids is not None:
@@ -97,9 +98,8 @@ def _filter_plot_rows(
     return frame.reset_index(drop=True)
 
 
-def save_spo_equity_plot(
+def spo_equity_figure(
     periods: pd.DataFrame,
-    path: str | Path,
     *,
     sleeve_ids: list[str] | str | None = None,
     position_ids: list[str] | str | None = None,
@@ -107,15 +107,12 @@ def save_spo_equity_plot(
     model_ids: list[str] | str | None = None,
     date_start: str | None = None,
     date_end: str | None = None,
-) -> Path:
+) -> plt.Figure:
     """
-    Write one SPO PNG. Filters apply only to the figure (full ``periods`` unchanged).
+    Build one SPO equity figure. Filters apply only to the figure.
 
     Colors: market = gray, baseline = black, hist_mean = red, other cpo = cycle.
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
     if periods.empty:
         raise ValueError("No period rows available to plot.")
 
@@ -168,6 +165,32 @@ def save_spo_equity_plot(
     ax.grid(True, alpha=0.25)
     fig.autofmt_xdate()
     fig.tight_layout()
+    return fig
+
+
+def save_spo_equity_plot(
+    periods: pd.DataFrame,
+    path: str | Path,
+    *,
+    sleeve_ids: list[str] | str | None = None,
+    position_ids: list[str] | str | None = None,
+    strategy_ids: list[str] | str | None = None,
+    model_ids: list[str] | str | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+) -> Path:
+    """Write one SPO PNG. Filters apply only to the figure (full ``periods`` unchanged)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig = spo_equity_figure(
+        periods,
+        sleeve_ids=sleeve_ids,
+        position_ids=position_ids,
+        strategy_ids=strategy_ids,
+        model_ids=model_ids,
+        date_start=date_start,
+        date_end=date_end,
+    )
     fig.savefig(path)
     plt.close(fig)
     return path

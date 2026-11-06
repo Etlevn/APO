@@ -17,6 +17,20 @@ from .paths import (
 )
 
 
+def _prepare_selections(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        raise ValueError("selections are empty.")
+    required = {"decision_date", "model_id", "strategy_id", "realized_label"}
+    missing = required - set(frame.columns)
+    if missing:
+        raise ValueError(f"selections missing columns: {sorted(missing)}")
+    out = frame.copy()
+    out["decision_date"] = pd.to_datetime(out["decision_date"]).dt.normalize()
+    if "position_mode" not in out.columns:
+        out["position_mode"] = "long_short"
+    return out
+
+
 def load_selections(path: str | Path) -> pd.DataFrame:
     path = Path(path)
     if not path.is_file():
@@ -24,14 +38,7 @@ def load_selections(path: str | Path) -> pd.DataFrame:
     frame = pd.read_csv(path)
     if frame.empty:
         raise ValueError(f"selections file is empty: {path}")
-    required = {"decision_date", "model_id", "strategy_id", "realized_label"}
-    missing = required - set(frame.columns)
-    if missing:
-        raise ValueError(f"selections missing columns: {sorted(missing)}")
-    frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.normalize()
-    if "position_mode" not in frame.columns:
-        frame["position_mode"] = "long_short"
-    return frame
+    return _prepare_selections(frame)
 
 
 def _periods_per_year(label_horizon: str) -> float:
@@ -94,7 +101,8 @@ def _summary_rows(
 def run_evaluation(
     panel: pd.DataFrame,
     *,
-    selections_path: str | Path,
+    selections_path: str | Path | None = None,
+    selections: pd.DataFrame | None = None,
     walkforward_cfg: dict,
     candidate_cfg: dict,
     price_col: str,
@@ -103,14 +111,20 @@ def run_evaluation(
     overlay_scale: float = 1.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Return full ``(summary, periods)`` for everything in ``selections_path``.
+    Return full ``(summary, periods)`` for the selections.
 
-    Always includes cpo/baseline singles + blends, and market.
+    Pass ``selections`` to use an in-memory table. Otherwise pass
+    ``selections_path``. Always includes cpo/baseline singles + blends, and market.
     Display filters belong in the standalone ``plot_spo.py`` entry, not here.
     """
-    raw = load_selections(selections_path)
+    if selections is not None:
+        raw = _prepare_selections(selections)
+    elif selections_path is not None:
+        raw = load_selections(selections_path)
+    else:
+        raise ValueError("run_evaluation requires selections or selections_path.")
     if raw.empty:
-        raise ValueError("selections file is empty.")
+        raise ValueError("selections are empty.")
 
     filtered = _attach_label_end(raw, walkforward_cfg)
     decisions = sorted(filtered["decision_date"].unique())

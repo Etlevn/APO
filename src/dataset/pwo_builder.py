@@ -77,6 +77,8 @@ def build_pwo_training_table(
     include_equal_weight: bool = True,
     dirichlet_alpha: float | list[float] = 1.0,
     show_progress: bool = False,
+    features: pd.DataFrame | None = None,
+    weight_candidates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Construct PWO samples: (E_t, w, y) with asset-layer buy-and-hold labels.
@@ -86,6 +88,10 @@ def build_pwo_training_table(
     - ``y``: forward portfolio return under ``w`` over ``label_horizon``.
 
     Calendar semantics match SPO (``sample_freq`` / ``rebalance_freq`` / ``label_horizon``).
+
+    ``features`` and ``weight_candidates`` are optional already-built frames.
+    When omitted, features are built from ``panel`` and weight candidates are
+    sampled here. Asset returns and forward labels are still computed here.
     """
     dataset_cfg = dataset_cfg or {}
     price_col = price_col or feature_cfg.get("price_col", "adj_close")
@@ -96,20 +102,38 @@ def build_pwo_training_table(
     feature_weights = resolve_weights(tickers, None)
     w_cols = [weight_column(t) for t in tickers]
 
-    weight_table = build_weight_candidates(
-        tickers,
-        n_candidates=n_weight_candidates,
-        seed=weight_seed,
-        include_equal_weight=include_equal_weight,
-        dirichlet_alpha=dirichlet_alpha,
-    )
+    if weight_candidates is None:
+        weight_table = build_weight_candidates(
+            tickers,
+            n_candidates=n_weight_candidates,
+            seed=weight_seed,
+            include_equal_weight=include_equal_weight,
+            dirichlet_alpha=dirichlet_alpha,
+        )
+    else:
+        required_weights = {"candidate_id", "is_equal_weight", *w_cols}
+        missing_weights = required_weights - set(weight_candidates.columns)
+        if missing_weights:
+            raise ValueError(
+                f"weight_candidates missing columns: {sorted(missing_weights)}"
+            )
+        if weight_candidates.empty:
+            raise ValueError("weight_candidates is empty.")
+        weight_table = weight_candidates.copy()
     weight_items = iter_weight_vectors(weight_table, tickers)
 
-    features = build_features(
-        panel,
-        price_col=price_col,
-        windows=feature_cfg.get("windows"),
-    )
+    if features is None:
+        features = build_features(
+            panel,
+            price_col=price_col,
+            windows=feature_cfg.get("windows"),
+        )
+    else:
+        required_features = {"timestamp", "asset_id", *FEATURE_COLUMNS}
+        missing_features = required_features - set(features.columns)
+        if missing_features:
+            raise ValueError(f"features missing columns: {sorted(missing_features)}")
+        features = features.copy()
     features = features.dropna(subset=list(FEATURE_COLUMNS)).copy()
     features["timestamp"] = pd.to_datetime(features["timestamp"])
 

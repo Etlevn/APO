@@ -132,6 +132,8 @@ def build_spo_training_table(
     position_modes: str | list[str] = "long_short",
     overlay_scale: float = 1.0,
     show_progress: bool = False,
+    features: pd.DataFrame | None = None,
+    strategy_panel: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Construct completed CPO samples.
@@ -146,6 +148,10 @@ def build_spo_training_table(
     - cross-sectional weighted features at the sample date (E_t)
     - candidate parameters (x)
     - forward portfolio performance label (y) over label_horizon
+
+    ``features`` and ``strategy_panel`` are optional already-built frames.
+    When omitted, features are built from ``panel`` and each candidate strategy
+    is run once. Position modes are still applied here.
     """
     dataset_cfg = dataset_cfg or {}
     price_col = price_col or feature_cfg.get("price_col", "adj_close")
@@ -156,13 +162,31 @@ def build_spo_training_table(
     modes = resolve_position_ids(position_modes)
 
     candidates = build_candidates(candidate_cfg)
-    features = build_features(
-        panel,
-        price_col=price_col,
-        windows=feature_cfg.get("windows"),
-    )
+    if features is None:
+        features = build_features(
+            panel,
+            price_col=price_col,
+            windows=feature_cfg.get("windows"),
+        )
+    else:
+        required_features = {"timestamp", "asset_id", *FEATURE_COLUMNS}
+        missing_features = required_features - set(features.columns)
+        if missing_features:
+            raise ValueError(f"features missing columns: {sorted(missing_features)}")
+        features = features.copy()
     features = features.dropna(subset=list(FEATURE_COLUMNS)).copy()
     features["timestamp"] = pd.to_datetime(features["timestamp"])
+
+    prepared_signals: dict[str, pd.DataFrame] | None = None
+    if strategy_panel is not None:
+        required_signals = {"candidate_id", "timestamp", "asset_id", "position", "asset_return"}
+        missing_signals = required_signals - set(strategy_panel.columns)
+        if missing_signals:
+            raise ValueError(f"strategy_panel missing columns: {sorted(missing_signals)}")
+        prepared_signals = {
+            str(candidate_id): frame.reset_index(drop=True)
+            for candidate_id, frame in strategy_panel.groupby("candidate_id", sort=False)
+        }
 
     max_ts = pd.to_datetime(panel["timestamp"]).max()
     panel_start = pd.to_datetime(panel["timestamp"]).min()
@@ -190,6 +214,7 @@ def build_spo_training_table(
     n_dates = len(event_dates)
     n_modes = len(modes)
     rows: list[dict[str, object]] = []
+    raw_cache: dict[str, pd.DataFrame] = {}
     # One tick per (mode × candidate × sample_date).
     pbar = (
         ProgressBar(n_modes * n_candidates * n_dates, desc="dataset")
@@ -202,7 +227,23 @@ def build_spo_training_table(
                 if pbar is not None:
                     pbar.set_description(f"dataset/{position_mode}/{strategy_id}")
                     pbar.set_postfix(cand=str(candidate_id))
-                raw = _run_one_candidate(panel, strategy_id, params, price_col=price_col)
+                if prepared_signals is not None:
+                    try:
+                        raw = prepared_signals[str(candidate_id)]
+                    except KeyError as exc:
+                        raise KeyError(
+                            f"strategy_panel missing candidate_id {candidate_id!r}"
+                        ) from exc
+                else:
+                    raw = raw_cache.get(str(candidate_id))
+                    if raw is None:
+                        raw = _run_one_candidate(
+                            panel,
+                            strategy_id,
+                            params,
+                            price_col=price_col,
+                        )
+                        raw_cache[str(candidate_id)] = raw
                 signal = apply_position_mode(
                     raw,
                     position_mode,
