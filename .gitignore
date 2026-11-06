@@ -11,3 +11,6 @@ venv/
 *.parquet
 /output/
 /notes/
+
+notebook/*
+!notebook/*.ipynb
